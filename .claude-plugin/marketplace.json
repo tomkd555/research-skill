@@ -1,0 +1,31 @@
+{
+  "name": "tomkd555",
+  "owner": {
+    "name": "tomkd555",
+    "url": "https://github.com/tomkd555"
+  },
+  "description": "A multi-agent research pipeline for Claude Code: planning, parallel collection, independent verification, synthesis, and an audit gate.",
+  "plugins": [
+    {
+      "name": "research-team",
+      "source": "./plugins/research-team",
+      "description": "Runs research as a five-stage pipeline over a team of subagents, and returns a report whose every claim links to a verified evidence ledger. Bundles the literature-review skill for academic sources.",
+      "version": "1.0.0",
+      "author": {
+        "name": "tomkd555",
+        "url": "https://github.com/tomkd555"
+      },
+      "homepage": "https://github.com/tomkd555/research-skill",
+      "repository": "https://github.com/tomkd555/research-skill",
+      "license": "MIT",
+      "category": "research",
+      "keywords": [
+        "research",
+        "evidence",
+        "citation-verification",
+        "literature-review",
+        "multi-agent"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "research-team",
+  "displayName": "Research Team",
+  "version": "1.0.0",
+  "description": "Runs research as a five-stage pipeline over a team of subagents, and returns a report whose every claim links to a verified evidence ledger. Bundles the literature-review skill for academic sources.",
+  "author": {
+    "name": "tomkd555",
+    "url": "https://github.com/tomkd555"
+  },
+  "homepage": "https://github.com/tomkd555/research-skill",
+  "repository": "https://github.com/tomkd555/research-skill",
+  "license": "MIT",
+  "keywords": [
+    "research",
+    "evidence",
+    "citation-verification",
+    "literature-review",
+    "multi-agent"
+  ]
+}

@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "research-team/evidence_log.schema.json",
+  "title": "research-team evidence log",
+  "description": "The evidence ledger, checked by scripts/evidence_auditor.py. The schema field has the form 'research-evidence-1.3': a mismatched major version stops the pipeline, a differing minor version is accepted as forward compatible (ledgers from 1.0-1.2 still load). Optional fields: source.doi / source.arxiv_id / archive / superseded_by / self_reported / lineage, search_log.role, search_log.facet, top-level floor_status, key_questions.relevance, floor_status.early_stop. key_questions has minItems 1 so that a single-KQ ledger promoted from LIGHT is accepted; the planning rule of 2-7 key questions is checked by research_plan_linter.py.",
+  "type": "object",
+  "required": ["schema", "topic", "as_of", "mode", "key_questions", "evidence", "search_log"],
+  "properties": {
+    "schema": { "type": "string", "pattern": "^research-evidence-\\d+\\.\\d+$" },
+    "topic": { "type": "string", "minLength": 1 },
+    "as_of": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "mode": { "enum": ["LIGHT", "STANDARD", "DEEP"] },
+    "deliverable_language": {
+      "type": "string",
+      "minLength": 2,
+      "description": "The language the prose of the deliverables is written in — the language of the request, as a BCP 47 tag such as en or ja. Their structure (section headings, table headers, confidence labels) is English whatever this says. Absent means en"
+    },
+    "key_questions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^KQ\\d+$" },
+          "text": { "type": "string", "minLength": 1 },
+          "relevance": {
+            "enum": ["decision", "background"],
+            "description": "Decision relevance. decision marks a KQ that directly drives the conclusion or recommendation (at most four in DEEP); background marks a premise or context KQ and gets the STANDARD floors. A KQ with no value is treated as decision (collection_standards.md §1)"
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kq_ids", "claim", "claim_type", "verbatim_quote", "source", "accessed", "is_key_figure", "corroboration"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^E\\d+$" },
+          "kq_ids": { "type": "array", "items": { "type": "string", "pattern": "^KQ\\d+$" }, "minItems": 1 },
+          "claim": { "type": "string", "minLength": 10, "description": "One falsifiable proposition, third person. No causation, implication, or recommendation" },
+          "claim_type": { "enum": ["fact", "estimate", "opinion"] },
+          "verbatim_quote": { "type": "string", "minLength": 1, "description": "A verbatim quote from the source, in its original language" },
+          "source": {
+            "type": "object",
+            "required": ["publisher", "title", "url", "published", "grade", "origin_cluster"],
+            "properties": {
+              "publisher": { "type": "string", "minLength": 1 },
+              "title": { "type": "string", "minLength": 1 },
+              "url": { "type": "string", "pattern": "^https?://", "description": "A full absolute URL, nothing abbreviated" },
+              "published": { "type": "string", "pattern": "^\\d{4}(-\\d{2}(-\\d{2})?)?$" },
+              "grade": { "enum": ["A", "B", "C"] },
+              "origin_cluster": { "type": "string", "minLength": 1, "description": "Independence cluster ID. The same value for the same publisher or a reprint relationship" },
+              "descriptor": { "type": "string", "description": "A narrative descriptor for a source that drives the conclusion (access to the data, motive, likely bias, freshness)" },
+              "doi": { "type": ["string", "null"], "pattern": "^10\\.\\d{4,9}/\\S+$", "description": "Optional. The DOI of an academic source (for example 10.18653/v1/2023.emnlp-main.398); citation_verifier.py checks that it resolves" },
+              "arxiv_id": { "type": ["string", "null"], "pattern": "^\\d{4}\\.\\d{4,5}(v\\d+)?$", "description": "Optional. The arXiv ID (for example 2402.14207); citation_verifier.py checks that it resolves" }
+            }
+          },
+          "accessed": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "is_key_figure": { "type": "boolean" },
+          "corroboration": { "enum": ["corroborated", "single_source", "conflicting"] },
+          "corroborating_ids": { "type": "array", "items": { "type": "string", "pattern": "^E\\d+$" } },
+          "staleness_note": { "type": "string", "description": "The reason for using data older than the three-year freshness rule" },
+          "archive": {
+            "type": ["object", "null"],
+            "description": "Optional. A Wayback snapshot for a source URL that cannot be reached; the parent or the verifier writes back what citation_verifier.py found",
+            "required": ["wayback_url", "timestamp"],
+            "properties": {
+              "wayback_url": { "type": "string", "pattern": "^https?://" },
+              "timestamp": { "type": "string", "pattern": "^\\d{14}$", "description": "YYYYMMDDhhmmss" }
+            }
+          },
+          "superseded_by": { "type": ["string", "null"], "pattern": "^E\\d+$", "description": "Optional. The ID of the evidence that replaced this one when conflicting newer evidence was confirmed. The original is never deleted, only marked; the report must not rest on it (report_auditor.py checks this)" },
+          "self_reported": { "type": "boolean", "default": false, "description": "Optional (default false). A figure published by the method's proposer, a vendor, or an interested party. Where it is also a key figure, the report must say so explicitly" },
+          "lineage": {
+            "type": ["object", "null"],
+            "description": "Optional. Which agent run produced this evidence, and from which key question",
+            "required": ["collected_by", "kq_id"],
+            "properties": {
+              "collected_by": { "enum": ["collector", "scholar", "lead"] },
+              "kq_id": { "type": "string", "pattern": "^KQ\\d+$" },
+              "fragment_file": { "type": "string", "description": "Path of the evidence fragment JSON (for example evidence_fragments/kq1_collector.json)" }
+            }
+          },
+          "verification": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": { "enum": ["confirmed", "plausible", "disputed", "refuted", "unchecked"] },
+              "method": { "type": "string" },
+              "note": { "type": "string" },
+              "quote_check": { "enum": ["found", "not_found", "unverifiable"] },
+              "attribution_check": { "enum": ["supports", "partial", "misattributed"] },
+              "counter_evidence": {
+                "type": "object",
+                "properties": {
+                  "queries": { "type": "array", "items": { "type": "string" } },
+                  "found": { "type": "string" },
+                  "strongest_opposing_view": { "type": "string" }
+                }
+              },
+              "confidence_band": { "type": "string", "description": "One label from the seven-level confidence vocabulary (interpretation_contract.md §5)" }
+            }
+          }
+        }
+      }
+    },
+    "alternatives": {
+      "type": "array",
+      "description": "Alternative hypotheses and the indicators that would change their likelihood (collection_standards.md §8-4). Collection agents write them into the fragment and merge_fragments.py passes them through; the element shape is not constrained"
+    },
+    "disconfirmation": {
+      "type": "array",
+      "description": "The record of the disconfirmation search. In STANDARD and DEEP, evidence_auditor.py fails an empty one; the schema itself does not require it, so that a ledger promoted from LIGHT is accepted",
+      "items": {
+        "type": "object",
+        "required": ["hypothesis", "expected_if_false", "queries", "found"],
+        "properties": {
+          "hypothesis": { "type": "string" },
+          "expected_if_false": { "type": "string", "description": "What would be observed if the hypothesis were false (listed before searching)" },
+          "queries": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "found": { "type": "string", "description": "The disconfirming fact found. Where none was, say so explicitly" },
+          "impact": { "type": "string", "description": "The effect on the hypothesis" },
+          "kq_id": { "type": "string", "pattern": "^KQ\\d+$", "description": "The key question this disconfirmation search belongs to; merge_fragments.py attaches it" },
+          "role": { "enum": ["collector", "scholar"] }
+        }
+      }
+    },
+    "search_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["query", "tool", "kind", "adopted"],
+        "properties": {
+          "query": { "type": "string" },
+          "tool": { "type": "string" },
+          "kind": { "enum": ["normal", "counter"] },
+          "facet": { "enum": ["definition", "data", "counter", "practice"], "description": "Which of the four search facets in collection_standards.md §2 this query covers. Optional; validate_fragment.py warns when a facet is missing from a fragment" },
+          "adopted": { "type": "integer", "minimum": 0 },
+          "kq_id": { "type": "string", "pattern": "^KQ\\d+$" },
+          "role": { "enum": ["collector", "scholar"], "description": "The collection role that ran this search; merge_fragments.py derives it from the fragment file name. Needed for the per-role floor checks in DEEP" }
+        }
+      }
+    },
+    "floor_status": {
+      "type": "array",
+      "description": "Floor status per fragment, taken from the collection agents' reports by merge_fragments.py. evidence_auditor.py uses it for the per-role floor judgement in DEEP and for the early-stop reading",
+      "items": {
+        "type": "object",
+        "required": ["kq_id", "role"],
+        "properties": {
+          "kq_id": { "type": "string", "pattern": "^KQ\\d+$" },
+          "role": { "enum": ["collector", "scholar"] },
+          "queries": { "type": "integer", "minimum": 0 },
+          "independent_sources": { "type": "integer", "minimum": 0 },
+          "counter_queries": { "type": "integer", "minimum": 0 },
+          "met": { "type": "boolean" },
+          "reason": { "type": "string", "description": "The reason a floor was not met" },
+          "early_stop": {
+            "type": "object",
+            "description": "The record of a conclusion-sufficiency early stop (collection_standards.md §1). Where the three conditions hold and the STANDARD floors are met, a shortfall is reported as WARN rather than FAIL",
+            "required": ["independent_sources", "consecutive_zero_new", "conclusion_confidence"],
+            "properties": {
+              "independent_sources": { "type": "integer", "minimum": 3 },
+              "consecutive_zero_new": { "type": "integer", "minimum": 2 },
+              "conclusion_confidence": { "enum": ["almost certain", "very likely", "likely"] },
+              "note": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim", "tried_queries", "recommended"],
+        "properties": {
+          "claim": { "type": "string" },
+          "tried_queries": { "type": "array", "items": { "type": "string" } },
+          "recommended": { "type": "string" }
+        }
+      }
+    }
+  }
+}

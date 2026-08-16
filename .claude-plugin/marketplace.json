@@ -10,7 +10,7 @@
       "name": "research-team",
       "source": "./plugins/research-team",
       "description": "Runs research as a five-stage pipeline over a team of subagents, and returns a report whose every claim links to a verified evidence ledger. Bundles the literature-review skill for academic sources.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "tomkd555",
         "url": "https://github.com/tomkd555"

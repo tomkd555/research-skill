@@ -189,12 +189,13 @@ def audit(report_text, evidence_log, citation_check=None):
                 f"{kq} is never mentioned (it needs a conclusion, or a statement that it "
                 "is unresolved)")
 
-    # 7. The confidence vocabulary (warn if the ledger holds estimates and no label is used).
-    has_estimate = any(e.get("claim_type") == "estimate" for e in evidence)
+    # 7. The confidence vocabulary. Every report states an overall confidence, so a report
+    # carrying no English label has had its labels translated along with the prose.
     labels_used = [lb for lb in CONFIDENCE_LABELS if lb in report_text.lower()]
-    if has_estimate and not labels_used:
-        add("WARN", "R-CONF",
-            "the ledger holds estimates, but the report uses none of the seven confidence labels")
+    if not labels_used:
+        add("FAIL", "R-CONF",
+            "the report carries none of the seven confidence labels; they stay in the English "
+            "wording labels.py holds, whatever language the prose is in")
 
     # 8. Refuted evidence must not be used.
     refuted = {e.get("id") for e in evidence

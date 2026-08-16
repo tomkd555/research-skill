@@ -238,6 +238,17 @@ def test_point_and_band():
           detail=str(codes(f2, "R-BAND")))
 
 
+def test_conf_labels_english():
+    print("[R-CONF] the confidence labels are not translated")
+    check("English labels pass", not codes(run_report(CLEAN_REPORT), "R-CONF"))
+
+    translated = (CLEAN_REPORT
+                  .replace("- Confidence: likely (65-80%)", "- 確度: 高い見込み（65%以上80%未満）")
+                  .replace("We put that at likely (65-80%).", "確度は高い見込み（65%以上80%未満）。"))
+    f = run_report(translated)
+    check("translated labels fail", len(codes(f, "R-CONF")) == 1, detail=str(codes(f, "R-CONF")))
+
+
 def test_kq2():
     print("[R-KQ2] a heading and a coverage row per KQ")
     no_head = CLEAN_REPORT.replace("## KQ1 conclusion", "## Conclusion")
@@ -275,6 +286,7 @@ if __name__ == "__main__":
     test_conflict_pair()
     test_counter_empty()
     test_point_and_band()
+    test_conf_labels_english()
     test_kq2()
     test_citecomp()
     if FAILURES:

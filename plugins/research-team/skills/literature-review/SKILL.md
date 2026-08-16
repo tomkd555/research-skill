@@ -38,7 +38,8 @@ OpenAlex puts callers who identify themselves on a faster queue. Set `OPENALEX_M
 contact address to join it; without the variable the script still works, on the shared queue.
 
 **Output language.** The structure is English and only English: the section headings and the
-confidence labels. The prose follows the language of the request — the evidence `claim` text, the
+confidence labels, in the report and in every message to the user that carries one. The prose
+follows the language of the request — the evidence `claim` text, the
 report body, and every message to the user. `quote` stays in the language of the paper. Search in
 whatever language the literature on the topic is written in — for most fields English — however
 the report itself reads.

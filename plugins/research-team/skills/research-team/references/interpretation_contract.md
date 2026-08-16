@@ -115,7 +115,9 @@ or the end (source [1]). In DEEP research, where the ledger grows large, observe
 ### Confidence vocabulary (seven levels)
 
 Estimates and forecasts use these seven labels, and no other label or probability band is mixed
-into the same document. The labels stay in English whatever language the prose is in. Pairing a
+into the same document. The labels stay in English whatever language the prose is in — in the
+report and in any message to the user that carries one — and a label is written with its band as
+`roughly even chance (45-65%)`, never translated and never reworded. Pairing a
 label with a probability band follows the intelligence-analysis standard for mapping estimative
 language onto probability ranges (sources [9][10]); the wording is that standard's own
 (US ODNI ICD 203).
@@ -155,7 +157,7 @@ reliability of its content (source [11]). The degraded mark exists to keep visib
 
 The final message at Step 6 (delivery) keeps this order.
 
-1. Summary (with a confidence label)
+1. Summary (with a confidence label, in the English wording of §5 and with its band)
 2. Key findings (each line carrying an evidence ID `[E#]`)
 3. Disconfirming evidence and limitations
 4. Audit verdict (the deterministic checks' FAIL/WARN counts plus the agent audit's verdict)

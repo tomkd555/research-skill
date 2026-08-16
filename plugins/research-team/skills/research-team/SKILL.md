@@ -34,10 +34,12 @@ This skill orchestrates research on any subject, producing findings in a structu
 interpret and evaluate correctly. It distributes collection, verification, and auditing across
 subagents, and owns four rule files that are the source of record for the rules themselves.
 
-**Output language.** The structure of every deliverable is English and only English: the section
-headings, the table headers, and the confidence labels. The prose is written in the language of
-the request — the body of `research_brief.md` and `report.md`, the evidence `claim` text, and
-every message to the user. `verbatim_quote` stays in the language of the source. Settle the
+**Output language.** The section headings, the table headers, and the confidence labels are
+English and only English — in every deliverable, and in every message to the user that carries
+one, because such a message transcribes the report rather than restating it. A label is written
+with its band as `roughly even chance (45-65%)`, never translated and never reworded. The prose
+around them is written in the language of the request — the body of `research_brief.md` and
+`report.md`, the evidence `claim` text, and every message to the user. `verbatim_quote` stays in the language of the source. Settle the
 language at Step 0, record it in the ledger's top-level `deliverable_language`, and pass it to
 `merge_fragments.py` as `--deliverable-language`; nothing else takes a language flag, because
 `scripts/labels.py` holds one English set of names and the check scripts all read it. A collection

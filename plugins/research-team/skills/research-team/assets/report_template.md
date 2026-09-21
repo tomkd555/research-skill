@@ -9,6 +9,7 @@
      three. -->
 
 - as_of: {YYYY-MM-DD} / mode: {STANDARD | DEEP}
+- Question type: {descriptive | diagnostic | evaluative | prescriptive | predictive}
 - Independent sources: {N} / evidence units: {N} / confirmed claims: {N}
 - Verification breakdown: confirmed {N} / plausible {N} / disputed {N} / refuted {N} / unchecked {N}
 - Overall confidence: {one of the seven labels} ({band})
@@ -55,6 +56,82 @@
 
 (same shape)
 
+## Analysis
+
+<!-- Write the Analysis before the Answer and the Summary. render_scaffold.py emits
+     only the blocks the Question type requires (labels.ANALYSIS_REQUIRED); the others
+     are left out, and the tables and bullets below are placeholders the writer edits
+     in place (no generated markers here, so --merge never touches this section once a
+     block's heading exists). report_auditor.py's R-ANALYSIS-EMPTY looks for a
+     substantive line with none of the {…} placeholder markup left in it. -->
+
+### Hypothesis matrix
+
+<!-- Required for diagnostic, evaluative, predictive. -->
+
+| Evidence | H1: {…} | H2: {…} | Diagnosticity |
+|---|---|---|---|
+| E# | + | − | high |
+
+<!-- + consistent / − inconsistent / 0 irrelevant. Diagnosticity is high when the
+     evidence is consistent with one hypothesis and inconsistent with another. -->
+
+- Non-diagnostic evidence: {E#, E#}
+- Hypothesis eliminated: {H#} — by {E#}
+- Surviving hypothesis: {H#}, on {n} diagnostic units
+
+### Mechanism
+
+<!-- Required for diagnostic, prescriptive. -->
+
+- Chain: {A}[E#] → {B}[E#] → {C}[E#]
+- Weakest link: {which arrow}
+- Unevidenced links: {which arrows rest on reasoning alone, or none}
+
+### Outside view
+
+<!-- Required for predictive. -->
+
+- Reference class: {the comparable cases this one belongs to}
+- Base rate: {the rate in that class}[E#]
+- Adjustment: {how far this case sits from the base rate, and why}[E#]
+- Result after adjustment: {the forecast, with its date and indicator}
+
+### Source incentives
+
+<!-- Required for every question type. -->
+
+| Evidence | Publisher | Who benefits if this figure is believed | self_reported | Corroborated by |
+|---|---|---|---|---|
+| {…} | {…} | {…} | {…} | {…} |
+
+### Second-order effects
+
+<!-- Required for prescriptive. -->
+
+| Action | First-order effect | Second-order effect | Who bears it | Evidence |
+|---|---|---|---|---|
+| {…} | {…} | {…} | {…} | {…} |
+
+### Premortem
+
+<!-- Required for prescriptive. -->
+
+- It is {as_of + 12 months} and the recommendation was followed and failed.
+- The three most likely causes: 1. {…} 2. {…} 3. {…}
+- Which of these the evidence cannot rule out: {…} — {what would rule it out}
+
+### Rival reading
+
+<!-- Required for every question type but descriptive. The lead reads rival.json and
+     writes this block; render_scaffold.py never reads rival.json itself. -->
+
+- Rival's answer: {rival.json answer, one sentence}
+- Reconciliation: {agree | differs}
+- Where it differs: {the specific point}
+- What would settle it: {the observation, which way it falls under each reading, the threshold}
+- Evidence the rival names as missing: {the items, and whether collection sought them}
+
 ## Disconfirmation and conflicting evidence
 
 <!-- Its own section: everything that runs against the conclusion collects here.
@@ -99,6 +176,13 @@
 - {other limits: the period covered, sources that could not be reached}
 
 ## KQ coverage
+
+<!-- render_scaffold.py renders this table once from evidence_log.json (the Key evidence
+     and Verification columns) and leaves the Conclusion and Confidence columns as the
+     placeholders below for the writer to fill in place (no generated markers here, so
+     --merge never touches this table once its heading exists; it appends the table
+     whole only when the heading is missing). report_auditor.py's R-COVERAGE-PLACEHOLDER
+     warns on a row still carrying {one line} or {label}. -->
 
 | KQ | Conclusion | Confidence | Key evidence | Verification |
 |---|---|---|---|---|

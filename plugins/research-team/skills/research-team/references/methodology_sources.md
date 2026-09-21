@@ -30,7 +30,8 @@ consulting-team-v2/references/methodology_evidence.md.
 | collection[8]  / interpretation[10] | ODNI (2015). Intelligence Community Directive 203: Analytic Standards. https://www.dni.gov/files/documents/ICD/ICD-203.pdf | official | The design philosophy of sourcing per judgement, transparency about corroboration, and standardised estimative language | 2026-07 |
 | collection[10] | U.S. Department of the Army (2006). FM 2-22.3: Human Intelligence Collector Operations, Appendix B. https://irp.fas.org/doddir/army/fm2-22-3.pdf | official | The prototype of the two-axis grading that assesses origin reliability (A-F) and information credibility (1-6) separately (the NATO counterpart is AJP-2.1) | 2026-07 |
 | — | Chamberlin, T. C. (1890). The Method of Multiple Working Hypotheses. Science, ns-15(366), 92-96. DOI: 10.1126/science.ns-15.366.92 | peer-reviewed (classic) | The planning-stage rule of holding several competing hypotheses | 2026-06 |
-| — | Heuer, R. J. Jr. (1999). Psychology of Intelligence Analysis. CIA Center for the Study of Intelligence | official | Analysis of Competing Hypotheses (ACH): the hypothesis that survives disconfirmation is the most likely | 2026-06 |
+| — | Heuer, R. J. Jr. (1999). Psychology of Intelligence Analysis. CIA Center for the Study of Intelligence | official | Analysis of Competing Hypotheses (ACH): the hypothesis that survives disconfirmation is the most likely. The report's Hypothesis matrix block (pipeline.md Step 4) is its compact form: evidence × hypotheses with a diagnosticity column, worked from the diagnostic rows alone | 2026-06 |
+| — | Kahneman, D., & Lovallo, D. (1993). Timid Choices and Bold Forecasts: A Cognitive Perspective on Risk Taking. Management Science, 39(1), 17-31. DOI: 10.1287/mnsc.39.1.17 | peer-reviewed | The outside view: a forecast starts from the base rate of its reference class and adjusts from there (the Outside view block for predictive questions) | 2026-09 |
 
 ## 2. Grounds for the interpretation contract
 
@@ -61,7 +62,7 @@ consulting-team-v2/references/methodology_evidence.md.
 | — | Wang, X., et al. (2023). Self-Consistency Improves Chain of Thought Reasoning in Language Models. ICLR 2023. arXiv:2203.11171 | peer-reviewed (conference) | The design of raising confidence through agreement across independent trials (agreement between verifiers informs a note on confidence) | 2026-07 |
 | evaluation[7] | Tetlock, P. E., & Gardner, D. (2015). Superforecasting: The Art and Science of Prediction. Crown. ISBN 978-0-8041-3669-3 | book | Writing forecasts so they can be checked, and calibrating by tracking outcomes | 2026-07 |
 | — | Mitchell, D. J., Russo, J. E., & Pennington, N. (1989). Back to the future: Temporal perspective in the explanation of events. Journal of Behavioral Decision Making, 2(1), 25-38. DOI: 10.1002/bdm.3960020103 | peer-reviewed | The empirical basis for imagining failure before a resubmission (premortem) | 2026-07 |
-| — | Klein, G. (2007). Performing a Project Premortem. Harvard Business Review, 85(9), 18-19 | practitioner (HBR) | The same, in its practitioner formulation | 2026-06 |
+| — | Klein, G. (2007). Performing a Project Premortem. Harvard Business Review, 85(9), 18-19 | practitioner (HBR) | The same, in its practitioner formulation; the report's Premortem block for prescriptive questions writes the failure as already having happened | 2026-06 |
 
 ## 4. Grounds for the 2026-07-11 changes (deterministic citation checking, schema extensions, the delegation template, file-based hand-off, an expanded audit rubric)
 

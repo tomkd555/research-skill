@@ -19,12 +19,23 @@ import json
 import re
 import os
 import sys
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import labels
 
+try:
+    from triage_sources import registrable_domain
+except ImportError:
+    def registrable_domain(url):
+        """Fallback: the last two labels of the host (www. dropped)."""
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        host = host[4:] if host.startswith("www.") else host
+        labels_ = host.split(".")
+        return ".".join(labels_[-2:]) if len(labels_) >= 2 else host
+
 SCHEMA_MAJOR = 1
-SCHEMA_MINOR = 3  # 1.3 added key_questions.relevance and floor_status.early_stop
+SCHEMA_MINOR = 4  # 1.4 added source.local_path and source.user_supplied (local materials)
 
 FLOORS = {
     "DEEP": {"queries": 12, "independent_sources": 5, "counter_queries": 2},
@@ -57,13 +68,38 @@ VALID_VERIFICATION = {"confirmed", "plausible", "disputed", "refuted", "unchecke
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 PUBLISHED_RE = re.compile(r"^\d{4}(-\d{2}(-\d{2})?)?$")
-URL_RE = re.compile(r"^https?://\S+$")
+URL_RE = re.compile(r"^(https?|file)://\S+$")
 DOI_RE = re.compile(r"^10\.\d{4,9}/\S+$")
 ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
 
 VALID_LINEAGE_COLLECTORS = {"collector", "scholar", "lead"}
 
+
+def enum_ok(value, valid):
+    """True when value is a member of the enum valid. A dict or any other unhashable
+    value stays safe here too: it counts as a wrong value with no exception raised."""
+    return isinstance(value, str) and value in valid
+
+
+def has_external_corroboration(e, src):
+    """True when verification.corroborating_source names a source outside this unit's
+    own domain: a verifier's own find, carrying no corroborating_ids entry from the
+    merge, that still stands as an independent corroboration (collection_standards.md
+    §1)."""
+    ver = e.get("verification")
+    corr_src = ver.get("corroborating_source") if isinstance(ver, dict) else None
+    if not isinstance(corr_src, dict):
+        return False
+    other_url = corr_src.get("url")
+    if not isinstance(other_url, str) or not other_url:
+        return False
+    own_domain = registrable_domain(src.get("url") or "")
+    other_domain = registrable_domain(other_url)
+    return bool(other_domain) and other_domain != own_domain
+
+
 SELF_REPORTED_MARKER = "self-reported"
+USER_SUPPLIED_MARKER = "user-supplied"
 
 SAMPLE = {
     "schema": "research-evidence-1.3",
@@ -291,7 +327,7 @@ class Auditor:
             if len(claim) < 10:
                 self.add("FAIL", "E-CLAIM",
                          "claim is too short (one falsifiable proposition is required)", loc)
-            if e.get("claim_type") not in VALID_CLAIM_TYPES:
+            if not enum_ok(e.get("claim_type"), VALID_CLAIM_TYPES):
                 self.add("FAIL", "E-CLAIM-TYPE", f"invalid claim_type: {e.get('claim_type')!r}", loc)
             quote = e.get("verbatim_quote", "")
             if not quote:
@@ -306,7 +342,7 @@ class Auditor:
             url = src.get("url", "")
             if url and (not URL_RE.match(url) or "..." in url or "…" in url):
                 self.add("FAIL", "E-URL", f"the URL is not a full absolute URL: {url!r}", loc)
-            if src.get("grade") and src["grade"] not in VALID_GRADES:
+            if src.get("grade") and not enum_ok(src["grade"], VALID_GRADES):
                 self.add("FAIL", "E-GRADE", f"invalid grade: {src['grade']!r}", loc)
             if src.get("published") and not PUBLISHED_RE.match(str(src["published"])):
                 self.add("FAIL", "E-PUB", f"malformed published: {src['published']!r}", loc)
@@ -329,7 +365,7 @@ class Auditor:
                              f"superseded_by points at an undefined id: {sup}", loc)
             lineage = e.get("lineage")
             if lineage:
-                if lineage.get("collected_by") not in VALID_LINEAGE_COLLECTORS:
+                if not enum_ok(lineage.get("collected_by"), VALID_LINEAGE_COLLECTORS):
                     self.add("FAIL", "E-LIN-BY",
                              f"invalid lineage.collected_by: {lineage.get('collected_by')!r}", loc)
                 if lineage.get("kq_id") not in kq_ids:
@@ -338,7 +374,7 @@ class Auditor:
                              loc)
 
             corr = e.get("corroboration")
-            if corr not in VALID_CORROBORATION:
+            if not enum_ok(corr, VALID_CORROBORATION):
                 self.add("FAIL", "E-CORR", f"invalid corroboration: {corr!r}", loc)
             corr_ids = e.get("corroborating_ids", [])
             for cid in corr_ids:
@@ -347,12 +383,13 @@ class Auditor:
                              f"corroborating_ids points at an undefined id: {cid}", loc)
                 if cid == eid:
                     self.add("FAIL", "E-CORR-SELF", "corroborating_ids points at itself", loc)
-            if corr == "corroborated" and not corr_ids:
+            if (corr == "corroborated" and not corr_ids
+                    and not has_external_corroboration(e, src)):
                 self.add("FAIL", "E-CORR-EMPTY",
                          "corroboration is corroborated but corroborating_ids is empty", loc)
 
             ver = e.get("verification", {})
-            if ver and ver.get("status") not in VALID_VERIFICATION:
+            if ver and not enum_ok(ver.get("status"), VALID_VERIFICATION):
                 self.add("FAIL", "E-VER",
                          f"invalid verification.status: {ver.get('status')!r}", loc)
 
@@ -375,7 +412,7 @@ class Auditor:
                         if other:
                             clusters.add(other.get("source", {}).get("origin_cluster"))
                     clusters.discard(None)
-                    if len(clusters) < 2:
+                    if len(clusters) < 2 and not has_external_corroboration(e, src):
                         self.add("FAIL", "E-KEY-CLUSTER",
                                  f"a corroborated key figure rests on {len(clusters)} independent "
                                  "cluster (two are the rule; a reprint of the same origin is not "
@@ -397,6 +434,13 @@ class Auditor:
                             and SELF_REPORTED_MARKER not in note.lower()):
                         self.add("FAIL", "E-KEY-SELFREP",
                                  "a self_reported key figure is marked \"self-reported\" in "
+                                 "neither claim nor verification.note", loc)
+                if src.get("user_supplied"):
+                    note = ver.get("note") or ""
+                    if (USER_SUPPLIED_MARKER not in claim.lower()
+                            and USER_SUPPLIED_MARKER not in note.lower()):
+                        self.add("FAIL", "E-KEY-USERSUP",
+                                 "a user-supplied key figure is marked \"user-supplied\" in "
                                  "neither claim nor verification.note", loc)
                 # Freshness: three years for a key figure of type fact.
                 pub = str(src.get("published", ""))[:4]
@@ -557,12 +601,26 @@ class Auditor:
                                            min_queries, min_counter, shortfall,
                                            code_prefix="E-FLOOR-ROLE")
 
-        # The independent-source floor.
+        # The independent-source floor. A cluster whose evidence is all user_supplied counts
+        # at most once per KQ (five internal PDFs must not clear a DEEP floor by themselves).
         for kq in sorted(kq_ids):
             floors = self.floors_for(kq)
-            clusters = {e.get("source", {}).get("origin_cluster")
-                        for e in evidence if kq in (e.get("kq_ids") or [])}
-            clusters.discard(None)
+            by_cluster = {}
+            for e in evidence:
+                if kq not in (e.get("kq_ids") or []):
+                    continue
+                oc = e.get("source", {}).get("origin_cluster")
+                if oc is not None:
+                    by_cluster.setdefault(oc, []).append(e)
+            clusters = set()
+            has_user_supplied_cluster = False
+            for oc, items in by_cluster.items():
+                if all(it.get("source", {}).get("user_supplied") for it in items):
+                    has_user_supplied_cluster = True
+                else:
+                    clusters.add(oc)
+            if has_user_supplied_cluster:
+                clusters.add("[user-supplied]")
             if len(clusters) < floors["independent_sources"]:
                 early_ok, _, _ = self.early_stop_of(kq)
                 base = FLOORS[BASE_FLOOR_MODE]["independent_sources"]

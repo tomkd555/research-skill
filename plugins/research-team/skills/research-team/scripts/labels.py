@@ -20,6 +20,7 @@ import re
 REPORT_SECTIONS = [
     ("DECISION",  ("answer to the decision", "decision answer")),
     ("SUMMARY",   ("summary", "conclusion")),
+    ("ANALYSIS",  ("analysis",)),
     ("COUNTER",   ("disconfirmation", "conflicting", "counter-evidence")),
     ("LIMITS",    ("limitations", "gaps")),
     ("COVERAGE",  ("coverage",)),
@@ -30,6 +31,7 @@ REPORT_SECTIONS = [
 # research_brief.md. code -> heading keywords.
 BRIEF_SECTIONS = {
     "purpose":              ("purpose",),
+    "question_analysis":    ("question analysis",),
     "key_questions":        ("key questions",),
     "disconfirmation_plan": ("disconfirmation plan",),
     "source_plan":          ("source plan",),
@@ -65,6 +67,56 @@ RELEVANCE_RE = re.compile(
 def relevance_of(match):
     """decision / background from a RELEVANCE_RE match."""
     return match.group(1).lower()
+
+
+# ------------------------------------------------------------ question analysis
+
+# The brief's Question analysis block (pipeline.md Step 1). The report header repeats the
+# question type, and it decides which blocks the Analysis section carries.
+QUESTION_TYPES = ("descriptive", "diagnostic", "evaluative", "prescriptive", "predictive")
+QUESTION_TYPE_RE = re.compile(
+    r"question type\s*[:：]\s*\**\s*([A-Za-z-]+)", re.IGNORECASE)
+QA_FIELDS = ("decision", "question type", "presuppositions", "useless answer",
+             "pivotal observation")
+
+
+def question_type_of(text):
+    """The question type a brief or report declares, lower-cased, or None."""
+    m = QUESTION_TYPE_RE.search(text)
+    if not m:
+        return None
+    value = m.group(1).lower()
+    return value if value in QUESTION_TYPES else None
+
+
+# ----------------------------------------------------------- analysis section
+
+# The Analysis section's blocks. code -> the H3 heading, written and checked from here.
+ANALYSIS_BLOCKS = {
+    "ACH":       "Hypothesis matrix",
+    "MECHANISM": "Mechanism",
+    "OUTSIDE":   "Outside view",
+    "INCENTIVE": "Source incentives",
+    "SECOND":    "Second-order effects",
+    "PREMORTEM": "Premortem",
+    "RIVAL":     "Rival reading",
+}
+# Which blocks each question type requires. Everything else is optional. A rival runs for
+# every type but descriptive, so its block is required there too.
+ANALYSIS_REQUIRED = {
+    "descriptive":  ("INCENTIVE",),
+    "diagnostic":   ("ACH", "MECHANISM", "INCENTIVE", "RIVAL"),
+    "evaluative":   ("ACH", "INCENTIVE", "RIVAL"),
+    "prescriptive": ("MECHANISM", "SECOND", "PREMORTEM", "INCENTIVE", "RIVAL"),
+    "predictive":   ("ACH", "OUTSIDE", "INCENTIVE", "RIVAL"),
+}
+# The fixed label lines the checks match inside the prose.
+OVERTURN_LABEL = "What would overturn this"
+SETTLE_LABEL = "What would settle it"
+RECONCILIATION_RE = re.compile(
+    r"^\s*-\s*Reconciliation\s*[:：]\s*\**\s*(agree|differs)", re.IGNORECASE | re.MULTILINE)
+# The strongest label a report may carry once the rival differs (rank 2 = "likely").
+RIVAL_CAP_RANK = 2
 
 
 # ------------------------------------------------------- confidence vocabulary
@@ -109,6 +161,7 @@ def contains_confidence(text):
 AMBIGUOUS_PATTERNS = (
     "maybe", "perhaps", "presumably", "arguably", "possibly",
     "it seems", "seems to be", "it would appear", "one would think",
+    "かもしれない", "だろう", "と思われる", "ようだ", "おそらく",
 )
 
 # R14 qualifiers. A claim on thin evidence carrying one of these is not an assertion.
@@ -116,6 +169,9 @@ HEDGE_PATTERNS = (
     "single_source", "single source", "reportedly", "is said to", "claims to",
     "self-reported", "provisional", "estimated", "according to", "appears to",
     "suggests", "as far as", "within the limits of", "on this evidence",
+    "とされる", "とされている", "と報告されている", "によれば", "によると",
+    "とみられる", "単一の出所", "単一出所", "一社の報告", "一次資料が一つ",
+    "可能性がある", "示唆される", "の限りで", "の範囲で", "に限れば", "自己申告",
 )
 
 # A probability band: 65-80% / 65% to 80%.
@@ -134,8 +190,10 @@ NUMERIC_ASSERTION_RE = re.compile(
     r"|[$€£¥]\s*\d",
     re.IGNORECASE)
 
-# Sentence separators.
-SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])(?=\s)")
+# Sentence separators. English needs the trailing space (so "3.14" is not a sentence
+# break); Japanese sentence punctuation (。！？) carries no space after it, so it splits
+# on its own.
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])(?=\s)|(?<=[。！？])")
 
 # Trailing punctuation stripped before looking at how a sentence ends.
 SENTENCE_TAIL_RE = re.compile(r"[.!?\s)\]\"']+$")
@@ -191,9 +249,51 @@ TEXT = {
     "hdr_breakdown": "- Verification breakdown: ",
     "hdr_sep": " / ",
     "hdr_overall": "- Overall confidence: {one of the seven labels} ({band})",
+    "hdr_qtype": "- Question type: %s",
     "sec_decision": "## Answer to the decision",
+    "decision_overturn":
+        "- What would overturn this: {the fact or indicator that would change the conclusion}",
     "sec_summary": "## Summary",
     "sec_kq": "## Conclusions per key question",
+    "sec_analysis": "## Analysis",
+    "analysis_note":
+        ("<!-- Write the Analysis before the Answer and the Summary. Fill only the blocks\n"
+         "     below; write outside the generated markers. -->"),
+    "blk_head": "### %s",
+    "tbl_ach": "| Evidence | H1: {…} | H2: {…} | Diagnosticity |",
+    "tbl_ach_legend":
+        ("<!-- + consistent / − inconsistent / 0 irrelevant. Diagnosticity is high when the\n"
+         "     evidence is consistent with one hypothesis and inconsistent with another. -->"),
+    "blk_ach_lines":
+        ("- Non-diagnostic evidence: {E#, E#}\n"
+         "- Hypothesis eliminated: {H#} — by {E#}\n"
+         "- Surviving hypothesis: {H#}, on {n} diagnostic units"),
+    "blk_mechanism":
+        ("- Chain: {A}[E#] → {B}[E#] → {C}[E#]\n"
+         "- Weakest link: {which arrow}\n"
+         "- Unevidenced links: {which arrows rest on reasoning alone, or none}"),
+    "blk_outside":
+        ("- Reference class: {the comparable cases this one belongs to}\n"
+         "- Base rate: {the rate in that class}[E#]\n"
+         "- Adjustment: {how far this case sits from the base rate, and why}[E#]\n"
+         "- Result after adjustment: {the forecast, with its date and indicator}"),
+    "tbl_incentive":
+        "| Evidence | Publisher | Who benefits if this figure is believed | self_reported | Corroborated by |",
+    "tbl_incentive_empty": "| — | — | (no key figure in the ledger) | — | — |",
+    "blk_incentive_line":
+        "- Reading: {what the interests behind the key figures do to the Answer}",
+    "tbl_second": "| Action | First-order effect | Second-order effect | Who bears it | Evidence |",
+    "tbl_second_row": "| {action} | {…} | {…} | {who} | [E#] |",
+    "blk_premortem":
+        ("- It is %s and the recommendation was followed and failed.\n"
+         "- The three most likely causes: 1. {…} 2. {…} 3. {…}\n"
+         "- Which of these the evidence cannot rule out: {…} — {what would rule it out}"),
+    "blk_rival":
+        ("- Rival's answer: {rival.json answer, one sentence}\n"
+         "- Reconciliation: {agree | differs}\n"
+         "- Where it differs: {the specific point}\n"
+         "- What would settle it: {the observation, which way it falls under each reading, the threshold}\n"
+         "- Evidence the rival names as missing: {the items, and whether collection sought them}"),
     "sec_counter": "## Disconfirmation and conflicting evidence",
     "sec_insight": "## Insight and implications",
     "sec_limits": "## Limitations and evidence gaps",

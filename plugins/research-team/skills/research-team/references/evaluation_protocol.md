@@ -2,7 +2,9 @@
 
 This applies to research-team's evaluation stage (Step 5). It defines the design principles for
 the auditor agent (research-auditor) and for the corroboration done at the verification stage
-(Step 3).
+(Step 3). The auditor's own definition (`agents/research-auditor.md`) carries the rubric and the
+sampling procedure operatively, so no agent reads this file at run time; the lead reads §6 when it
+applies the audit's findings.
 
 The report under audit carries English structure — section headings, table headers and
 confidence labels, all held in `scripts/labels.py`, which is the source of record for them. Its
@@ -56,7 +58,8 @@ writes the results to `citation_check.json`.
 | R6 | The study's limitations and evidence gaps are stated | Section existence plus a cross-check against the ledger's `gaps` |
 | R7 | Errors (unsupported plus contradicted) in atomic-fact sampling (§4) are under 30% of the sample | The §4 procedure |
 | R13 | The deterministic citation check has zero CRITICAL findings (sources [8][9]) | Check every evidence ID in `citation_check.json`. If any item is left with an unresolved DOI/arXiv ID (`doi_status` / `arxiv_status` of not_found) or a `quote_match` of not_found, and the auditor agent has not judged it, the item fails |
-| R14 | Claims resting on thin evidence (single_source, or plausible and below) are not written as flat assertions | Cross-check the body against `corroboration` and `verification`. A claim based on single_source, or on a verification of plausible or below, that is written as a flat assertion (a bare "X is Y", with no hedge) without a seven-level confidence label fails. A violation is grounds for resubmission |
+| R14 | Claims resting on thin evidence (single_source, or plausible and below) are never written as flat assertions | Cross-check the body against `corroboration` and `verification`. A claim based on single_source, or on a verification of plausible or below, that is written as a flat assertion (a bare "X is Y", with no hedge) without a seven-level confidence label fails. A violation is grounds for resubmission |
+| R16 | Where the rival analyst's answer differs from the report's, both readings appear in the body with the observation that would settle them, and the overall confidence is capped at "likely" or below | Compare `rival.json` against the `### Rival reading` block and the header's overall confidence. The item passes by default when no `rival.json` exists (a descriptive study runs no rival). `scripts/report_auditor.py --rival` checks the shape (`R-RIVAL`, `R-RIVAL-CAP`); the auditor judges the substance |
 
 ### Recommended items (WARN)
 
@@ -110,15 +113,17 @@ be divided further — not by an overall impression (sources [5][6]).
 
 | Severity | Definition | Handling |
 |---|---|---|
-| CRITICAL | A failed mandatory item (R1–R7, R13, R14), or reliance on refuted evidence | Cannot pass. Resubmit that KQ |
+| CRITICAL | A failed mandatory item (R1–R7, R13, R14, R16), or reliance on refuted evidence | Cannot pass. Resubmit that KQ |
 | WARN | A failed recommended item, an important claim resting on a single source, a freshness violation | Recorded, may pass. Transcribed into the report's limitations section |
 | INFO | Unused evidence, room for improvement in style or structure | Recorded only |
 
 - Pass condition: zero CRITICAL findings
 - Resubmit **per KQ** for the findings raised, and keep the deliverables of unaffected KQs
   intact (rebuilding everything risks degradation and reintroduced errors)
-- At most two resubmissions. Beyond that, deliver the best version with the unresolved findings
-  and limitations stated in it. Agreement between findings from more than one aspect informs a note
+- The lead applies the audit's findings once, re-runs the deterministic checks, and delivers; it
+  re-launches the auditor only for a CRITICAL on R7 or on the substantive part of R3 or R4, and at
+  most once. Beyond that, deliver the best version with the unresolved findings and limitations
+  stated in it. Agreement between findings from more than one aspect informs a note
   on confidence; it never automatically escalates severity
 
 ### Minimum re-run scope for a resubmission
@@ -129,7 +134,7 @@ completeness of the audit.
 
 | Finding | Minimum re-run scope |
 |---|---|
-| R1, R2, R5, R6, R8–R12, R14, R15, and the part of R4 that is a writing omission | **Step 4 only**. The ledger is unchanged |
+| R1, R2, R5, R6, R8–R12, R14, R15, R16, and the part of R4 that is a writing omission | **Step 4 only**. The ledger is unchanged (for R16 the rival's JSON is already on disk) |
 | R13, a missing verdict, and the part of R3 where verification is incomplete | **Step 3** (re-verify only the affected evidence) → Step 4 |
 | The part of R3 that is insufficient corroboration, the part of R4 that is an insufficient disconfirmation search, R7, and a FAIL on `E-FLOOR-*` | **Step 2** (additional collection for that KQ only) → Step 3 → Step 4 |
 
@@ -143,8 +148,8 @@ the limitations section.
 
 In a Step 4 re-run, keep the KQ sections with no findings intact. Apply the two-pass drafting
 (recall → precision) only to what was rewritten; do not revise a section that has already been
-through both passes. The summary, the KQ coverage table, and the source list are always updated,
-so that they stay consistent with the rewritten sections.
+through both passes. Re-render the generated regions with `render_scaffold.py --merge`, so the
+summary, the KQ coverage table and the source list stay consistent with the rewritten sections.
 
 ## Sources
 

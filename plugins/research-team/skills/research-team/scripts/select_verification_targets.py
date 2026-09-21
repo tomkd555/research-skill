@@ -6,29 +6,35 @@ ledger by eye, picks targets out of it and copies claim text into a brief. This 
 up every signal a machine can decide, and the orchestrator adds only what a machine cannot -
 the claims that swing the conclusion or the recommendation.
 
-Targets are narrowed by how much they bear on the conclusion. Key figures and conflicts bear
-on it directly, so every one of them is a target; single-source and estimate claims are
-targets only where they belong to a decision KQ, that is a key question whose relevance is
-anything other than background. On top of that, the number of batches is capped per mode,
-and the excess is cut starting from the lowest-priority batch. The evidence IDs cut this way
+Targets are narrowed by how much they bear on the conclusion, in this cut order: a claim the
+lead names with `--must-verify` ranks first and is forced into an opus batch; conflicting
+sources; a citation check that came back CRITICAL; a key figure not corroborated across two
+or more independent source clusters; a single-source claim belonging to a decision KQ. A key
+figure that is corroborated across clusters, and any claim whose claim_type is estimate, rank
+last — behind a single source — because independence already backs the figure and an estimate
+carries no fact to get wrong. On top of that, the number of batches is capped per mode, and
+the excess is cut starting from the lowest-priority batch. The evidence IDs cut this way
 appear under dropped in the output, and their count and the reason belong in the gaps of the
-evidence ledger. The cap is per investigation, not per wave: the second wave gets only what
-the first wave left of it.
+evidence ledger. The cap counts across the whole investigation: the second wave gets only
+what the first wave left of it. Once the cap has cut what it will, every decision KQ (every KQ, in
+a mode where none is tagged) that still has no target gets its single highest-ranked evidence
+unit added anyway, signalled kq_minimum, so the confidence ceiling cannot cap it at "likely"
+only because nobody was sent to check it.
 
-Selection runs in two waves. Wave 1 uses the signals the evidence ledger settles on its own:
-key figures, single sources, conflicts, key figures resting on grade C alone, self-reported
-key figures, and claims whose claim_type is estimate. Wave 2 takes citation_check.json
-through `--citation` and picks up the evidence whose citation check came back CRITICAL or
-WARN and that wave 1 did not already cover. Splitting the waves this way means wave 1 does
-not wait for a full set of citation results, which only arrives midway through the
-verification phase.
+Wave 1 uses the signals the evidence ledger settles on its own — key figures, single
+sources, conflicts, key figures resting on grade C alone, self-reported key figures, claims
+whose claim_type is estimate — and, when `--citation` names a finished citation_check.json,
+folds in every evidence unit whose citation check came back CRITICAL, ranked by the same
+SIGNAL_RANK as everything else. This is the normal shape now that S3 finishes
+citation_verifier.py before S4 starts, so one call covers both. Wave 2 exists for a gap
+resubmission: called later, with a fresher citation_check.json, it picks up whatever
+CRITICAL result wave 1 left uncovered — a WARN (an unreachable page, a transient network
+error) launches no agent either way; `citation_verifier.py --retry-warn` re-requests it
+instead. `--must-verify` is honoured in whichever wave names it.
 
 Each batch gets its own claim payload, targets_{BATCH_ID}.json, holding that batch's claims
 and their matching citation-check records and nothing else, so no verifier has to read the
 whole of citation_check.json.
-
-`--citation` feeds the payload whether or not it drives the selection. Passing the output of
-a narrowed `citation_verifier.py --only` in wave 1 puts those results into the payload too.
 
 Examples:
     python select_verification_targets.py evidence_log.json --run-dir research/20260726-topic
@@ -46,27 +52,65 @@ import json
 import os
 import sys
 
-BATCH_SIZE = 3          # claims per verifier (the sizing rule in agent_roles.md)
+BATCH_SIZE = 5          # claims per verifier (the sizing rule in pipeline.md)
 MAX_BATCHES_PER_LAUNCH = 16   # cap on how many agents one message may launch
-OPUS_SIGNALS = ("key_figure", "conflicting")   # what swings the conclusion is verified by opus
+# What swings the conclusion is verified by opus. A must-verify claim is forced here too.
+OPUS_SIGNALS = ("key_figure", "conflicting", "conclusion_driver")
 
 # Cap on the number of batches, per investigation. Once it is reached, the lowest-priority
 # batches are cut.
-MAX_BATCHES = {"DEEP": 10, "STANDARD": 6, "LIGHT": 2}
+MAX_BATCHES = {"DEEP": 5, "STANDARD": 3, "LIGHT": 1}
 
 # Signals that only target evidence belonging to a decision KQ. Key figures and conflicts
 # bear on the conclusion directly, so every one of them is a target.
 DECISION_SCOPED_SIGNALS = ("single_source", "estimate")
 
 SIGNAL_LABELS = {
+    "conclusion_driver": "named by the lead as carrying the conclusion",
     "key_figure": "key figure",
     "single_source": "single source",
     "conflicting": "sources conflict",
     "grade_c_key": "key figure resting on grade C alone",
     "self_reported_key": "self-reported key figure",
+    "key_figure_corroborated": "key figure corroborated across independent sources",
     "estimate": "estimate or forecast",
-    "citation_flagged": "citation check CRITICAL / WARN",
+    "citation_flagged": "citation check CRITICAL",
+    "kq_minimum": "no other target reached this decision KQ",
 }
+
+# The cut order: the lower the rank, the later a signal is cut once a mode's batch cap is
+# reached. A corroborated key figure and an estimate rank last, behind a single source,
+# because a second independent cluster already backs the figure and an estimate carries no
+# fact to get wrong. kq_minimum is not ranked here — it is added after the cap has already
+# cut what it will.
+SIGNAL_RANK = {
+    "conclusion_driver": 0,
+    "conflicting": 1,
+    "citation_flagged": 2,
+    "key_figure": 3,
+    "single_source": 4,
+    "key_figure_corroborated": 5,
+    "estimate": 5,
+}
+UNRANKED_SIGNAL = 6
+
+
+def signal_rank(eid, signals):
+    """The best (lowest) cut-order rank among one evidence unit's signals."""
+    names = signals.get(eid, [])
+    return min((SIGNAL_RANK.get(s, UNRANKED_SIGNAL) for s in names), default=UNRANKED_SIGNAL)
+
+
+def merge_signals(*signal_dicts):
+    """Combine several {evidence_id: [signal, …]} maps, keeping each signal name once."""
+    merged = {}
+    for d in signal_dicts:
+        for eid, names in d.items():
+            lst = merged.setdefault(eid, [])
+            for name in names:
+                if name not in lst:
+                    lst.append(name)
+    return merged
 
 
 def _configure_stdout():
@@ -93,6 +137,11 @@ def ledger_signals(log):
     Single-source and estimate signals apply only to evidence belonging to a decision KQ:
     verifying a claim that does not swing the conclusion spends agents without changing the
     verdict. Key figures and conflicts apply to every evidence unit.
+
+    A key figure carries the key_figure signal only where it is not corroborated across two
+    or more independent origin_cluster values (its own plus its corroborating_ids'); one that
+    is corroborated that way carries key_figure_corroborated instead, ranked at the bottom of
+    the cut order alongside estimate.
     """
     evidence = log.get("evidence", [])
     by_id = {e.get("id"): e for e in evidence}
@@ -111,12 +160,16 @@ def ledger_signals(log):
         eid = e.get("id")
         src = e.get("source") or {}
         if e.get("is_key_figure"):
-            mark(eid, "key_figure")
+            clusters = {src.get("origin_cluster")}
             grades = {src.get("grade")}
             for cid in e.get("corroborating_ids") or []:
                 other = by_id.get(cid)
                 if other:
-                    grades.add((other.get("source") or {}).get("grade"))
+                    other_src = other.get("source") or {}
+                    clusters.add(other_src.get("origin_cluster"))
+                    grades.add(other_src.get("grade"))
+            clusters.discard(None)
+            mark(eid, "key_figure_corroborated" if len(clusters) >= 2 else "key_figure")
             grades.discard(None)
             if grades and grades <= {"C"}:
                 mark(eid, "grade_c_key")
@@ -133,21 +186,67 @@ def ledger_signals(log):
 
 
 def citation_signals(citation, known_ids):
-    """Return the signals taken from the citation-check severities, as {evidence_id: [signal]}."""
+    """Return the signals taken from the citation-check severities, as {evidence_id: [signal]}.
+
+    Only CRITICAL is targeted (quote_match: not_found, DOI/arXiv not_found). A WARN — an
+    unreachable page or a transient network error — launches no agent; citation_verifier.py
+    --retry-warn re-requests it instead.
+    """
     signals = {}
     for r in (citation or {}).get("results") or []:
         eid = r.get("id")
-        if eid in known_ids and r.get("severity") in ("CRITICAL", "WARN"):
+        if eid in known_ids and r.get("severity") == "CRITICAL":
             signals[eid] = ["citation_flagged"]
     return signals
 
 
-def make_batches(target_ids, signals, run_dir, wave, max_batches=None):
+def must_verify_signals(spec, known_ids):
+    """--must-verify: the lead's conclusion-carrying evidence IDs.
+
+    Returns ({evidence_id: ["conclusion_driver"]}, errors); an ID absent from the ledger goes
+    into errors, and selection still runs for the rest of the run.
+    """
+    if not spec:
+        return {}, []
+    known = set(known_ids)
+    signals = {}
+    errors = []
+    for eid in (part.strip() for part in spec.split(",")):
+        if not eid:
+            continue
+        if eid in known:
+            signals[eid] = ["conclusion_driver"]
+        else:
+            errors.append(f"--must-verify names an evidence id absent from the ledger: {eid}")
+    return signals, errors
+
+
+GRADE_RANK = {"A": 0, "B": 1, "C": 2}
+
+
+def best_evidence_for_kq(kq_id, evidence):
+    """The single highest-ranked evidence unit belonging to a KQ, for the kq_minimum rule.
+
+    Highest-ranked: a key figure first, then by source grade, then ledger order.
+    """
+    candidates = [e for e in evidence if kq_id in (e.get("kq_ids") or [])]
+    if not candidates:
+        return None
+
+    def rank(e):
+        grade = (e.get("source") or {}).get("grade")
+        return (0 if e.get("is_key_figure") else 1, GRADE_RANK.get(grade, 9))
+
+    return min(candidates, key=rank).get("id")
+
+
+def make_batches(target_ids, signals, run_dir, wave, max_batches=None, start=0):
     """Group the targets into batches, opus batches first, BATCH_SIZE each bar the remainder.
 
-    Anything past max_batches is cut. Returns (batches, dropped_evidence_ids). Because the
-    opus batches - key figures and conflicts - come first, what gets cut is always the
-    lowest-priority work.
+    target_ids is expected pre-sorted by signal_rank, so within each model the lowest-priority
+    work sits last. Anything past max_batches is cut. Returns (batches, dropped_evidence_ids).
+    `start` offsets the batch numbering and launch grouping past batches already made for this
+    wave (the kq_minimum pass runs a second, uncapped call).
     """
     verification_dir = os.path.join(run_dir, "verification")
 
@@ -159,22 +258,23 @@ def make_batches(target_ids, signals, run_dir, wave, max_batches=None):
 
     batches = []
     for model, ids in (("opus", opus_ids), ("sonnet", sonnet_ids)):
-        for start in range(0, len(ids), BATCH_SIZE):
-            chunk = ids[start:start + BATCH_SIZE]
+        for i in range(0, len(ids), BATCH_SIZE):
+            chunk = ids[i:i + BATCH_SIZE]
             names = []
             for eid in chunk:
                 for s in signals.get(eid, []):
                     label = SIGNAL_LABELS.get(s, s)
                     if label not in names:
                         names.append(label)
-            batch_id = f"w{wave}b{len(batches) + 1}"
+            position = start + len(batches)
+            batch_id = f"w{wave}b{position + 1}"
             batches.append({
                 "batch_id": batch_id,
                 "ids": chunk,
                 "model": model,
                 "verdicts_path": os.path.join(verification_dir, f"verdicts_{batch_id}.json"),
                 "targets_path": os.path.join(verification_dir, f"targets_{batch_id}.json"),
-                "launch_group": len(batches) // MAX_BATCHES_PER_LAUNCH,
+                "launch_group": position // MAX_BATCHES_PER_LAUNCH,
                 "reason": " / ".join(names),
             })
     if max_batches is not None and len(batches) > max_batches:
@@ -217,22 +317,62 @@ def batches_of_other_waves(run_dir, wave):
                if not os.path.basename(p).startswith(f"targets_w{wave}b"))
 
 
-def select(log, citation, run_dir, wave, max_batches=None):
-    known_ids = [e.get("id") for e in log.get("evidence", []) if e.get("id")]
+def select(log, citation, run_dir, wave, max_batches=None, must_verify=None):
+    evidence = log.get("evidence", [])
+    by_id = {e.get("id"): e for e in evidence}
+    known_ids = [e.get("id") for e in evidence if e.get("id")]
     ledger = ledger_signals(log)
+    must, errors = must_verify_signals(must_verify, known_ids)
+    cite = citation_signals(citation, set(known_ids)) if citation else {}
     if wave == 1:
-        signals = ledger
+        # A citation check finished in time for this call feeds the same selection the
+        # ledger signals do, ranked by the same SIGNAL_RANK.
+        signals = merge_signals(ledger, cite, must)
         target_ids = [i for i in known_ids if i in signals]
     else:
-        signals = citation_signals(citation, set(known_ids))
-        # Do not select again what wave 1 already picked up
-        target_ids = [i for i in known_ids if i in signals and i not in ledger]
+        signals = merge_signals(cite, must)
+        # Do not select again what wave 1 already picked up, unless --must-verify names it.
+        target_ids = [i for i in known_ids
+                      if i in signals and (i not in ledger or i in must)]
+
+    index = {eid: i for i, eid in enumerate(known_ids)}
+    target_ids.sort(key=lambda eid: (signal_rank(eid, signals), index.get(eid, 0)))
+
     if max_batches is None:
         max_batches = MAX_BATCHES.get(log.get("mode"), MAX_BATCHES["STANDARD"])
     spent = batches_of_other_waves(run_dir, wave)
     remaining = max(0, max_batches - spent)
     batches, dropped = make_batches(target_ids, signals, run_dir, wave, remaining)
     selected_ids = [eid for b in batches for eid in b["ids"]]
+
+    # kq_minimum: once the cap has cut what it will, every decision KQ still without a
+    # target gets its single highest-ranked evidence unit added anyway. Wave 1 alone runs
+    # this: wave 2 sees only the citation-driven follow-up, so it cannot tell an uncovered
+    # KQ apart from one wave 1 already sent a verifier to.
+    kq_min_ids = []
+    if wave == 1:
+        covered = set()
+        for eid in selected_ids:
+            covered.update((by_id.get(eid) or {}).get("kq_ids") or [])
+        for kq in sorted(decision_kqs(log)):
+            if kq in covered:
+                continue
+            best = best_evidence_for_kq(kq, evidence)
+            if best is None or best in selected_ids:
+                continue
+            signals.setdefault(best, [])
+            if "kq_minimum" not in signals[best]:
+                signals[best].append("kq_minimum")
+            kq_min_ids.append(best)
+    if kq_min_ids:
+        # An id the cap cut and kq_minimum then reinstates is verified, so it leaves
+        # dropped: the two lists stay disjoint with expected_ids.
+        dropped = [eid for eid in dropped if eid not in kq_min_ids]
+        extra, _ = make_batches(kq_min_ids, signals, run_dir, wave, max_batches=None,
+                                 start=len(batches))
+        batches = batches + extra
+        selected_ids = selected_ids + [eid for b in extra for eid in b["ids"]]
+
     counts = {}
     for names in signals.values():
         for s in names:
@@ -253,6 +393,7 @@ def select(log, citation, run_dir, wave, max_batches=None):
                        f"({spent} already used by other waves); record the count and this "
                        f"reason in the gaps of the evidence ledger") if dropped else "",
         },
+        "errors": errors,
         "batches": batches,
     }
 
@@ -267,11 +408,17 @@ def main():
                         help="1 (default) selects from the evidence ledger alone; "
                              "2 selects from the citation-check severities")
     parser.add_argument("--citation", default=None,
-                        help="output of citation_verifier.py; it feeds the payload, and is "
-                             "required with --wave 2")
+                        help="output of citation_verifier.py; it feeds the payload and, in "
+                             "wave 1, a CRITICAL severity also becomes a target; required "
+                             "with --wave 2")
     parser.add_argument("--max-batches", type=int, default=None,
                         help=f"cap on the number of batches "
                              f"(default: per the ledger's mode, {MAX_BATCHES})")
+    parser.add_argument("--must-verify", default=None,
+                        help="comma-separated evidence IDs the lead names as carrying the "
+                             "conclusion (e.g. E1,E7); each becomes a target ranked first and "
+                             "forced into an opus batch, and an unknown ID is reported as an "
+                             "error")
     parser.add_argument("--json", action="store_true", help="print JSON")
     args = parser.parse_args()
 
@@ -302,7 +449,8 @@ def main():
             return 2
 
     run_dir = os.path.abspath(args.run_dir)
-    summary = select(log, citation, run_dir, wave=args.wave, max_batches=args.max_batches)
+    summary = select(log, citation, run_dir, wave=args.wave, max_batches=args.max_batches,
+                      must_verify=args.must_verify)
 
     try:
         os.makedirs(os.path.join(run_dir, "verification"), exist_ok=True)
@@ -319,6 +467,8 @@ def main():
     else:
         print(f"wave {summary['wave']}: {summary['target_count']} target(s) / "
               f"{len(summary['batches'])} batch(es) / {summary['launch_groups']} launch(es)")
+        for e in summary["errors"]:
+            print(f"  error: {e}", file=sys.stderr)
         if summary["dropped"]["count"]:
             print(f"  {summary['dropped']['count']} evidence unit(s) cut at the cap: "
                   f"{', '.join(summary['dropped']['ids'])} - {summary['dropped']['reason']}")
@@ -327,7 +477,7 @@ def main():
             print(f"      {b['targets_path']}")
         if summary["batches"]:
             print(f"  apply_verdicts.py --expected {summary['expected_ids']}")
-    return 0
+    return 1 if summary["errors"] else 0
 
 
 if __name__ == "__main__":

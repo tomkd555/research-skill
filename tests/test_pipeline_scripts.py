@@ -183,7 +183,7 @@ def main():
         out_md = os.path.join(run_dir, "report.md")
         rc, out, err = run("render_scaffold.py", os.path.join(run_dir, "evidence_log.json"),
                            "--out", out_md, "--slices", os.path.join(run_dir, "kq_slices"),
-                           "--json")
+                           "--question-type", "diagnostic", "--json")
         check("it exits cleanly", rc == 0, f"rc={rc} err={err[:200]}")
         s = json.loads(out)
         text = open(out_md, encoding="utf-8").read()
@@ -250,15 +250,101 @@ def main():
         print("[render_scaffold does not overwrite]")
         before = open(out_md, encoding="utf-8").read()
         rc, out, err = run("render_scaffold.py", os.path.join(run_dir, "evidence_log.json"),
-                           "--out", out_md, "--slices", os.path.join(run_dir, "kq_slices"))
+                           "--out", out_md, "--slices", os.path.join(run_dir, "kq_slices"),
+                           "--question-type", "diagnostic")
         check("an existing output makes it exit 2", rc == 2, f"rc={rc}")
         check("the writing already done survives",
               open(out_md, encoding="utf-8").read() == before)
         rc, out, err = run("render_scaffold.py", os.path.join(run_dir, "evidence_log.json"),
                            "--out", out_md, "--slices", os.path.join(run_dir, "kq_slices"),
-                           "--force")
+                           "--question-type", "diagnostic", "--force")
         check("--force overwrites",
               rc == 0 and open(out_md, encoding="utf-8").read() != before, f"rc={rc}")
+
+        print("[render_scaffold --merge]")
+        marker_note = "This note is the writer's own and must survive a merge."
+        with_note = open(out_md, encoding="utf-8").read().replace(
+            "<!-- /generated:kq_KQ1 -->\n\n",
+            "<!-- /generated:kq_KQ1 -->\n\n" + marker_note + "\n\n", 1)
+        with open(out_md, "w", encoding="utf-8") as fh:
+            fh.write(with_note)
+
+        log_path = os.path.join(run_dir, "evidence_log.json")
+        merge_log = json.load(open(log_path, encoding="utf-8"))
+        e1 = next(e for e in merge_log["evidence"] if e["id"] == "E1")
+        e1["verification"]["status"] = "disputed"
+        with open(log_path, "w", encoding="utf-8") as fh:
+            json.dump(merge_log, fh, ensure_ascii=False, indent=2)
+
+        rc, out, err = run("render_scaffold.py", log_path,
+                           "--merge", out_md, "--question-type", "diagnostic", "--json")
+        check("--merge exits cleanly", rc == 0, f"rc={rc} err={err[:200]}")
+        merged_text = open(out_md, encoding="utf-8").read()
+        check("the writer's prose survives the merge", marker_note in merged_text)
+        check("the Question type line (outside the header marker) survives the merge",
+              "- Question type: diagnostic" in merged_text)
+        kq1_block = merged_text.split("<!-- generated:kq_KQ1 -->")[1].split(
+            "<!-- /generated:kq_KQ1 -->")[0]
+        e1_row = next(l for l in kq1_block.splitlines() if l.startswith("| E1 |"))
+        check("the regenerated evidence table picks up the ledger change",
+              "disputed" in e1_row, e1_row)
+        check("the Analysis section carries no generated markers",
+              "generated:analysis" not in merged_text)
+
+        # A second --merge (writer edits the appended Hypothesis matrix block in place,
+        # replacing the {…} placeholders) must not overwrite that editing or duplicate
+        # the block's heading; with --question-type omitted it must read "diagnostic"
+        # from the file's own "- Question type:" line.
+        edited = merged_text.replace(
+            "| E# | + | − | high |", "| E1 | + | − | high |", 1)
+        with open(out_md, "w", encoding="utf-8") as fh:
+            fh.write(edited)
+        rc, out, err = run("render_scaffold.py", log_path, "--merge", out_md)
+        check("--merge without --question-type exits cleanly", rc == 0,
+              f"rc={rc} err={err[:200]}")
+        check("no 'defaulting to descriptive' note when the target already names a type",
+              "defaulting to descriptive" not in err, err)
+        re_merged = open(out_md, encoding="utf-8").read()
+        check("the writer's edited Hypothesis matrix row survives a second merge",
+              "| E1 | + | − | high |" in re_merged, re_merged)
+        check("the Hypothesis matrix heading is not duplicated",
+              re_merged.count("### Hypothesis matrix") == 1)
+
+        print("[render_scaffold --merge keeps the writer's coverage edits]")
+        check("the coverage table carries no generated markers",
+              "generated:coverage" not in re_merged, "present")
+        coverage_block = re_merged.split("## KQ coverage", 1)[1].split("## Search log", 1)[0]
+        kq1_row = next(l for l in coverage_block.splitlines() if l.startswith("| KQ1 |"))
+        filled_row = (kq1_row.replace("{one line}", "The figure holds.")
+                             .replace("{label}", "likely (65-80%)"))
+        with open(out_md, "w", encoding="utf-8") as fh:
+            fh.write(re_merged.replace(kq1_row, filled_row))
+        rc, out, err = run("render_scaffold.py", log_path, "--merge", out_md)
+        check("a further merge exits cleanly", rc == 0, f"rc={rc} err={err[:200]}")
+        coverage_merged = open(out_md, encoding="utf-8").read()
+        check("the writer's Conclusion/Confidence survive the merge",
+              filled_row in coverage_merged, coverage_merged)
+        check("the KQ coverage heading is not duplicated",
+              coverage_merged.count("## KQ coverage") == 1)
+
+        print("[render_scaffold --merge appends KQ coverage when the target has none]")
+        head, rest = coverage_merged.split("## KQ coverage", 1)
+        _, tail = rest.split("## Search log", 1)
+        no_coverage = head + "## Search log" + tail
+        with open(out_md, "w", encoding="utf-8") as fh:
+            fh.write(no_coverage)
+        rc, out, err = run("render_scaffold.py", log_path, "--merge", out_md)
+        check("a merge with no KQ coverage section exits cleanly", rc == 0,
+              f"rc={rc} err={err[:200]}")
+        appended = open(out_md, encoding="utf-8").read()
+        appended_block = appended.split("## KQ coverage", 1)[1].split("## Search log", 1)[0] \
+            if "## KQ coverage" in appended else ""
+        check("the KQ coverage table is appended back, populated from the ledger",
+              "| KQ1 |" in appended_block and "| KQ2 |" in appended_block, appended_block)
+
+        rc, out, err = run("render_scaffold.py", log_path,
+                           "--merge", out_md, "--out", out_md)
+        check("--merge with --out errors", rc == 2, f"rc={rc}")
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

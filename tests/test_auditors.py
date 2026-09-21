@@ -123,7 +123,8 @@ def test_floor_units():
 # ---------------------------------------------------------------- report_auditor
 
 def build_log():
-    """The ledger for report_auditor: E1/E2 corroborated, E3 thin, E4/E5 conflicting."""
+    """The ledger for report_auditor: E1/E2 corroborated, E3 thin, E4/E5 conflicting,
+    E6 a self-reported single-source figure no fixture report cites by default."""
     return {
         "key_questions": [{"id": "KQ1", "text": "?"}],
         "evidence": [
@@ -137,6 +138,8 @@ def build_log():
              "verification": {"status": "confirmed"}},
             {"id": "E5", "corroboration": "conflicting", "corroborating_ids": ["E4"],
              "verification": {"status": "confirmed"}},
+            {"id": "E6", "corroboration": "single_source", "corroborating_ids": [],
+             "self_reported": True, "verification": {"status": "plausible"}},
         ],
         "gaps": [],
     }
@@ -146,11 +149,13 @@ CLEAN_REPORT = """# Research report
 
 as_of: 2026-07-25
 
+- Question type: descriptive
+
 ## Answer to the decision
 - Answer: the figure is holding at 12,000 cases [E1]
 - Recommendation: keep to the current course
 - Confidence: likely (65-80%)
-- What would overturn it: the second series staying below the current level
+- What would overturn this: the second series staying below the current level
 
 ## Summary
 The headline figure is holding at 12,000 cases [E1]. We put that at likely (65-80%).
@@ -159,6 +164,16 @@ The headline figure is holding at 12,000 cases [E1]. We put that at likely (65-8
 On KQ1, the figure stands at 12,000 cases [E1][E2].
 A second series puts it at 9,000 cases [E4]. The gap comes from a difference of definition [E5].
 The supplementary figure is reportedly 62% [E3].
+
+## Analysis
+
+### Source incentives
+
+| Evidence | Publisher | Who benefits if this figure is believed | self_reported | Corroborated by |
+|---|---|---|---|---|
+| E1 | Publisher | the publisher, if the figure supports its own position | false | E2 |
+
+No source in the ledger is a party to the decision, so the incentive picture is clean.
 
 ## Disconfirmation and conflicting evidence
 No report showing the opposite turned up. Three disconfirming queries were run.
@@ -261,7 +276,7 @@ def test_kq2():
 
 def test_citecomp():
     print("[R-CITECOMP] citation_check completeness and CRITICAL")
-    full = {"results": [{"id": f"E{i}", "severity": "PASS"} for i in range(1, 6)]}
+    full = {"results": [{"id": f"E{i}", "severity": "PASS"} for i in range(1, 7)]}
     check("complete and no CRITICAL passes",
           not codes(run_report(CLEAN_REPORT, citation=full), "R-CITECOMP"))
 
@@ -270,12 +285,308 @@ def test_citecomp():
           len(codes(run_report(CLEAN_REPORT, citation=partial), "R-CITECOMP")) == 1)
 
     crit = {"results": [{"id": f"E{i}", "severity": "PASS"} for i in range(1, 5)]
-                       + [{"id": "E5", "severity": "CRITICAL"}]}
+                       + [{"id": "E5", "severity": "CRITICAL"}, {"id": "E6", "severity": "PASS"}]}
     check("a CRITICAL fails",
           len(codes(run_report(CLEAN_REPORT, citation=crit), "R-CITECOMP")) == 1)
 
     check("no --citation raises nothing",
           not codes(run_report(CLEAN_REPORT), "R-CITECOMP"))
+
+
+JP_LOG = build_log()
+
+
+def jp_report(kq1_line):
+    """A minimal Japanese-prose report over JP_LOG's ledger, its structure (headings,
+    the confidence label, the question type) held in English as the pipeline requires."""
+    return f"""# 研究レポート
+
+as_of: 2026-07-25
+
+- Question type: descriptive
+
+## Answer to the decision
+- Answer: X holds[E1]
+- Confidence: likely (65-80%)
+
+## Summary
+概要。
+
+## KQ1 conclusion
+{kq1_line}
+
+## Disconfirmation and conflicting evidence
+特になし。
+
+## Limitations and evidence gaps
+特になし。
+
+## KQ coverage
+| KQ | Key evidence | Verification |
+|---|---|---|
+| KQ1 | E3 | plausible |
+
+## Search log
+| Query |
+|---|
+| q1 |
+
+## Sources
+- [E1] Publisher. https://example.com/a
+"""
+
+
+def test_thin_japanese():
+    print("[R-THIN] a Japanese claim on thin evidence, hedged or bare")
+    hedged = jp_report("補足的な数値は62%とされる[E3]。")
+    check("とされる clears it", not codes(run_report(hedged, log=JP_LOG), "R-THIN"),
+          detail=str(codes(run_report(hedged, log=JP_LOG), "R-THIN")))
+
+    bare = jp_report("補足的な数値は62%です[E3]。")
+    check("no hedge fails", len(codes(run_report(bare, log=JP_LOG), "R-THIN")) == 1,
+          detail=str(codes(run_report(bare, log=JP_LOG), "R-THIN")))
+
+    two_sentences = jp_report("第一の値は62%です[E3]。第二の値は62%とされる[E3]。")
+    f = run_report(two_sentences, log=JP_LOG)
+    check("two 。 sentences: only the unhedged first one fails",
+          len(codes(f, "R-THIN")) == 1, detail=str(codes(f, "R-THIN")))
+
+
+def test_coverage_placeholder():
+    print("[R-COVERAGE-PLACEHOLDER] a coverage row still carrying the scaffold's placeholder")
+    check("the filled fixture passes", not codes(run_report(CLEAN_REPORT), "R-COVERAGE-PLACEHOLDER"))
+    bad = CLEAN_REPORT.replace(
+        "| KQ1 | E1, E2 | confirmed |",
+        "| KQ1 | {one line} | {label} | E1, E2 | confirmed |")
+    f = run_report(bad)
+    check("an unfilled placeholder row warns",
+          len(codes(f, "R-COVERAGE-PLACEHOLDER")) == 1,
+          detail=str(codes(f, "R-COVERAGE-PLACEHOLDER")))
+
+
+def test_citecomp_cleared():
+    print("[R-CITECOMP] a CRITICAL record a verifier already judged is cleared")
+    crit = {"results": [{"id": f"E{i}", "severity": "PASS"} for i in range(1, 5)]
+                       + [{"id": "E5", "severity": "CRITICAL"}, {"id": "E6", "severity": "PASS"}]}
+    check("an unjudged CRITICAL fails",
+          len(codes(run_report(CLEAN_REPORT, citation=crit), "R-CITECOMP")) == 1)
+
+    quote_checked = copy.deepcopy(build_log())
+    e5 = next(e for e in quote_checked["evidence"] if e["id"] == "E5")
+    e5["verification"]["quote_check"] = "found"
+    check("cleared when the unit's quote_check is 'found'",
+          not codes(run_report(CLEAN_REPORT, log=quote_checked, citation=crit), "R-CITECOMP"))
+
+    refuted = copy.deepcopy(build_log())
+    e5b = next(e for e in refuted["evidence"] if e["id"] == "E5")
+    e5b["verification"]["status"] = "refuted"
+    check("cleared when the unit's status is 'refuted'",
+          not codes(run_report(CLEAN_REPORT, log=refuted, citation=crit), "R-CITECOMP"))
+
+
+def test_analysis_type():
+    print("[R-ANALYSIS-TYPE] the header names a recognised question type")
+    check("a recognised type passes", not codes(run_report(CLEAN_REPORT), "R-ANALYSIS-TYPE"))
+    bad = CLEAN_REPORT.replace("- Question type: descriptive", "- Question type: unsure")
+    check("an unrecognised type fails", len(codes(run_report(bad), "R-ANALYSIS-TYPE")) == 1,
+          detail=str(codes(run_report(bad), "R-ANALYSIS-TYPE")))
+    no_line = CLEAN_REPORT.replace("- Question type: descriptive\n", "")
+    check("no line at all fails", len(codes(run_report(no_line), "R-ANALYSIS-TYPE")) == 1,
+          detail=str(codes(run_report(no_line), "R-ANALYSIS-TYPE")))
+
+
+def test_analysis_block():
+    print("[R-ANALYSIS-BLOCK] a required block has a heading under Analysis")
+    check("the required heading passes", not codes(run_report(CLEAN_REPORT), "R-ANALYSIS-BLOCK"))
+    bad = CLEAN_REPORT.replace("### Source incentives", "### Something else")
+    f = run_report(bad)
+    check("a missing heading fails", len(codes(f, "R-ANALYSIS-BLOCK")) == 1,
+          detail=str(codes(f, "R-ANALYSIS-BLOCK")))
+    check("emptiness is not raised twice for a heading that is not there",
+          not codes(f, "R-ANALYSIS-EMPTY"), detail=str(codes(f, "R-ANALYSIS-EMPTY")))
+
+
+def test_analysis_empty():
+    print("[R-ANALYSIS-EMPTY] a required block needs a line free of {…} placeholders")
+    check("the writer's sentence clears the descriptive fixture's Source incentives",
+          not codes(run_report(CLEAN_REPORT), "R-ANALYSIS-EMPTY"))
+    filled = ra.audit(render_ach(), ACH_LOG)[0]
+    check("a filled Mechanism block clears it", not codes(filled, "R-ANALYSIS-EMPTY"),
+          detail=str(codes(filled, "R-ANALYSIS-EMPTY")))
+    f = ra.audit(render_ach(mech=MECH_PLACEHOLDER), ACH_LOG)[0]
+    check("the unedited {…} placeholder block fails", len(codes(f, "R-ANALYSIS-EMPTY")) == 1,
+          detail=str(codes(f, "R-ANALYSIS-EMPTY")))
+
+
+def test_selfreport():
+    print("[R-SELFREPORT] the Answer/Summary must not rest on a self-reported single-source figure")
+    check("E6 uncited passes", not codes(run_report(CLEAN_REPORT), "R-SELFREPORT"))
+    bad = CLEAN_REPORT.replace(
+        "- Answer: the figure is holding at 12,000 cases [E1]",
+        "- Answer: the figure is holding at 12,000 cases [E1][E6]")
+    f = run_report(bad)
+    check("citing it in the Answer fails", len(codes(f, "R-SELFREPORT")) == 1,
+          detail=str(codes(f, "R-SELFREPORT")))
+
+
+def test_overturn():
+    print("[R-OVERTURN] the decision section names what would overturn it")
+    check("the label with text passes", not codes(run_report(CLEAN_REPORT), "R-OVERTURN"))
+    no_text = CLEAN_REPORT.replace(
+        "- What would overturn this: the second series staying below the current level",
+        "- What would overturn this:")
+    check("the label with no text after the colon warns",
+          len(codes(run_report(no_text), "R-OVERTURN")) == 1,
+          detail=str(codes(run_report(no_text), "R-OVERTURN")))
+    removed = CLEAN_REPORT.replace(
+        "- What would overturn this: the second series staying below the current level\n", "")
+    check("no line at all warns", len(codes(run_report(removed), "R-OVERTURN")) == 1,
+          detail=str(codes(run_report(removed), "R-OVERTURN")))
+
+
+# A separate small report for the checks that need a diagnostic question type (the
+# Hypothesis matrix and a rival reading), so CLEAN_REPORT stays the minimal descriptive
+# fixture the other checks share.
+ACH_LOG = {
+    "key_questions": [{"id": "KQ1", "text": "?"}],
+    "evidence": [
+        {"id": "E1", "corroboration": "corroborated", "corroborating_ids": ["E2"],
+         "verification": {"status": "confirmed"}},
+        {"id": "E2", "corroboration": "corroborated", "corroborating_ids": ["E1"],
+         "verification": {"status": "confirmed"}},
+    ],
+    "gaps": [],
+}
+
+ACH_REPORT = """# Research report
+
+as_of: 2026-07-25
+
+- Question type: diagnostic
+- Overall confidence: {CONF}
+
+## Answer to the decision
+- Answer: X holds [E1]
+- Recommendation: proceed
+- Confidence: likely (65-80%)
+- What would overturn this: a contradicting confirmed source
+
+## Summary
+X holds on the evidence [E1]. We put that at likely (65-80%).
+
+## KQ1 conclusion
+On KQ1, X holds [E1][E2].
+
+## Analysis
+
+### Hypothesis matrix
+
+| Evidence | H1: X | H2: not X | Diagnosticity |
+|---|---|---|---|
+| E1 | + | − | {DIAG} |
+
+The matrix eliminates H2 on E1.
+
+### Mechanism
+
+{MECH}
+
+### Source incentives
+
+| Evidence | Publisher | Who benefits | self_reported | Corroborated by |
+|---|---|---|---|---|
+| E1 | Publisher | nobody | false | E2 |
+
+No incentive concern.
+
+### Rival reading
+
+- Rival's answer: X does not hold
+- Reconciliation: {RECON}
+- Where it differs: the mechanism
+- What would settle it: a third source
+- Evidence the rival names as missing: none
+
+## Disconfirmation and conflicting evidence
+Nothing turned up against it.
+
+## Limitations and evidence gaps
+None material.
+
+## KQ coverage
+| KQ | Key evidence | Verification |
+|---|---|---|
+| KQ1 | E1, E2 | confirmed |
+
+## Search log
+| Query | Language |
+|---|---|
+| q1 | en |
+
+## Sources
+- [E1] Publisher. https://example.com/a
+- [E2] Publisher. https://example.com/b
+"""
+
+# The Mechanism block filled in versus left as the scaffold's own {…} placeholders.
+MECH_FILLED = "- Chain: A[E1] -> B[E2]\n\nThe chain holds with no unevidenced link."
+MECH_PLACEHOLDER = ("- Chain: {A}[E#] → {B}[E#] → {C}[E#]\n"
+                    "- Weakest link: {which arrow}\n"
+                    "- Unevidenced links: {which arrows rest on reasoning alone, or none}")
+
+
+def render_ach(diag="high", recon="agree", conf="likely (65-80%)", mech=MECH_FILLED):
+    return (ACH_REPORT.replace("{DIAG}", diag).replace("{RECON}", recon)
+                       .replace("{CONF}", conf).replace("{MECH}", mech))
+
+
+def test_ach_diag():
+    print("[R-ACH-DIAG] the matrix carries a high-diagnosticity row, ignoring placeholder rows")
+    f = ra.audit(render_ach(diag="low"), ACH_LOG)[0]
+    check("no high row warns", len(codes(f, "R-ACH-DIAG")) == 1, detail=str(codes(f, "R-ACH-DIAG")))
+    f2 = ra.audit(render_ach(diag="high"), ACH_LOG)[0]
+    check("a high row clears it", not codes(f2, "R-ACH-DIAG"), detail=str(codes(f2, "R-ACH-DIAG")))
+
+    scaffold_row = render_ach(diag="high").replace("| E1 | + | − | high |", "| E# | + | − | high |")
+    f3 = ra.audit(scaffold_row, ACH_LOG)[0]
+    check("the scaffold's own \"E#\" example row does not satisfy it",
+          len(codes(f3, "R-ACH-DIAG")) == 1, detail=str(codes(f3, "R-ACH-DIAG")))
+
+
+def test_rival():
+    print("[R-RIVAL] a Rival reading heading with a reconciliation line, when --rival is given")
+    text = render_ach()
+    check("no --rival raises nothing", not codes(ra.audit(text, ACH_LOG)[0], "R-RIVAL"))
+    f = ra.audit(text, ACH_LOG, rival={})[0]
+    check("a heading with Reconciliation clears it", not codes(f, "R-RIVAL"),
+          detail=str(codes(f, "R-RIVAL")))
+    no_head = text.replace("### Rival reading", "### Something else")
+    f2 = ra.audit(no_head, ACH_LOG, rival={})[0]
+    check("no Rival reading heading fails", len(codes(f2, "R-RIVAL")) == 1,
+          detail=str(codes(f2, "R-RIVAL")))
+
+
+def test_rival_cap():
+    print("[R-RIVAL-CAP] a 'differs' reconciliation needs the settle line and a capped confidence")
+    ok = render_ach(recon="differs")
+    f = ra.audit(ok, ACH_LOG, rival={})[0]
+    check("a settle line and a capped confidence pass",
+          not codes(f, "R-RIVAL-CAP"), detail=str(codes(f, "R-RIVAL-CAP")))
+
+    no_settle = ok.replace("- What would settle it: a third source\n", "")
+    f2 = ra.audit(no_settle, ACH_LOG, rival={})[0]
+    check("no settle line fails", len(codes(f2, "R-RIVAL-CAP")) == 1,
+          detail=str(codes(f2, "R-RIVAL-CAP")))
+
+    too_strong = render_ach(recon="differs", conf="almost certain (90-100%)")
+    f3 = ra.audit(too_strong, ACH_LOG, rival={})[0]
+    check("a confidence stronger than the cap fails", len(codes(f3, "R-RIVAL-CAP")) == 1,
+          detail=str(codes(f3, "R-RIVAL-CAP")))
+
+    agrees = render_ach(recon="agree")
+    f4 = ra.audit(agrees, ACH_LOG, rival={})[0]
+    check("an 'agree' reconciliation raises nothing", not codes(f4, "R-RIVAL-CAP"),
+          detail=str(codes(f4, "R-RIVAL-CAP")))
 
 
 if __name__ == "__main__":
@@ -289,6 +600,17 @@ if __name__ == "__main__":
     test_conf_labels_english()
     test_kq2()
     test_citecomp()
+    test_citecomp_cleared()
+    test_thin_japanese()
+    test_coverage_placeholder()
+    test_analysis_type()
+    test_analysis_block()
+    test_analysis_empty()
+    test_selfreport()
+    test_overturn()
+    test_ach_diag()
+    test_rival()
+    test_rival_cap()
     if FAILURES:
         print(f"\n{len(FAILURES)} failed: {FAILURES}")
         sys.exit(1)

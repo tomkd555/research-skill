@@ -1,8 +1,10 @@
 # Collection standards (the source of record for accurate research results)
 
 These quality standards apply to research-team's collection stage (Step 2) and
-verification stage (Step 3). Collection agents (research-collector) read this document in full
-before starting. The floor numbers are this skill's internal design values and are not
+verification stage (Step 3). This file is the human-facing source of record and the bibliography;
+the operative text lives in `agents/research-collector.md` and `agents/research-scholar.md`, so no
+agent reads this document at run time, and `tests/test_standards_sync.py` keeps the floor numbers
+in those definitions equal to `scripts/evidence_auditor.py`. The floor numbers are this skill's internal design values and are not
 attributed to any external standard. Public analytic standards such as the US ODNI's ICD 203
 set no numeric norms; they require sourcing per judgement and transparency about the state of
 corroboration. These standards are internal rules informed by that design philosophy
@@ -223,7 +225,11 @@ differing points in time, differing populations — is worth more than presentin
 
 ## 9. Page-fetch rules
 
-Fetch pages through `scripts/fetch_page.py`, and read the cache it writes. WebFetch is the
+Fetch pages through `scripts/fetch_page.py`, and read the cache it writes. The same script ingests
+the local materials the user supplied (text, HTML, DOCX, PDF) into the same cache under a canonical
+`file://` URL; a unit from such a file carries `source.user_supplied: true`, one `origin_cluster`
+per file, a grade judged by the origin of the document, and counts at most once per key question
+toward the independent-source floor. WebFetch is the
 fallback, not the default, because it does not return the page as it is: it converts the page to
 Markdown, has a small model answer the `prompt`, and returns that answer. Record that answer as a
 verbatim quote and it fails the citation match (`scripts/citation_verifier.py` looks for the

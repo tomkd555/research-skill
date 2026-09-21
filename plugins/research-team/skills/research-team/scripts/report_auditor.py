@@ -7,12 +7,14 @@ sections, vague expressions, uncited figures, KQ coverage and the confidence
 vocabulary, plus the items of the evaluation_protocol.md rubric a machine can decide:
 R1 (a heading and a coverage row per KQ), R3 (both sides of a conflict), R4 (the
 disconfirmation section has a body), R5 (point estimates and probability bands), R13
-(citation checking covers every unit) and R14 (thin evidence stated as fact). Standard
-library only.
+(citation checking covers every unit), R14 (thin evidence stated as fact) and R16 (where
+the rival differs, both readings appear and confidence is capped: R-RIVAL /
+R-RIVAL-CAP). Standard library only.
 
 Examples:
     python report_auditor.py report.md --evidence evidence_log.json
     python report_auditor.py report.md --evidence evidence_log.json --citation citation_check.json --json
+    python report_auditor.py report.md --evidence evidence_log.json --rival rival.json --json
 
 Exit codes: 0 = PASS or WARN only / 1 = at least one FAIL / 2 = usage or I/O error
 """
@@ -56,6 +58,9 @@ THIN_VERIFICATION = {"plausible", "disputed", "unchecked", ""}
 # get out of hand.
 THIN_SEVERITY = "FAIL"
 CONFLICT_PAIR_SEVERITY = "FAIL"
+
+# Header text: everything before the first `## ` heading (title plus metrics).
+HEADER_RE = re.compile(r"^##\s", re.MULTILINE)
 
 
 def _configure_stdout():
@@ -103,7 +108,107 @@ def is_substantive(line):
     return True
 
 
-def audit(report_text, evidence_log, citation_check=None):
+def header_text(report_text):
+    """The lines before the first `## ` section: the title and the metrics block."""
+    m = HEADER_RE.search(report_text)
+    return report_text[:m.start()] if m else report_text
+
+
+def body_after_heading(rows, head_line):
+    """Substantive lines between one heading and the next, discounting generated
+    regions. R4 (R-COUNTER-EMPTY) and R-ANALYSIS-EMPTY both ask the same question: did
+    the writer put anything of their own under this heading, past the ledger transcript?
+    """
+    body_lines = []
+    in_generated = False
+    for i, line, _, in_code in rows:
+        if i <= head_line:
+            continue
+        if not in_code and re.match(r"^#{1,4}\s+", line):
+            break
+        if GENERATED_BEGIN_RE.match(line):
+            in_generated = True
+            continue
+        if GENERATED_END_RE.match(line):
+            in_generated = False
+            continue
+        if in_generated:
+            continue
+        if is_substantive(line):
+            body_lines.append(line)
+    return body_lines
+
+
+def analysis_h3_headings(rows):
+    """(line, heading text) for every H3 heading sitting under the `## Analysis` section."""
+    heads = []
+    in_analysis = False
+    for i, line, _, in_code in rows:
+        if in_code:
+            continue
+        if re.match(r"^##\s+", line):
+            in_analysis = section_matches(line, labels.section_keywords("ANALYSIS"))
+            continue
+        if in_analysis and re.match(r"^###\s+", line):
+            heads.append((i, line))
+    return heads
+
+
+def table_rows_in_body(rows, head_line):
+    """Every markdown table row (header and separator included) under one heading."""
+    out = []
+    for i, line, _, in_code in rows:
+        if i <= head_line:
+            continue
+        if not in_code and re.match(r"^#{1,4}\s+", line):
+            break
+        s = line.strip()
+        if not s.startswith("|"):
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        if cells and re.match(r"^:?-+:?$", cells[0]):
+            continue  # the |---|---| separator row
+        out.append(cells)
+    return out
+
+
+def has_placeholder_braces(line):
+    """Does this line still carry the scaffold's {…} placeholder markup? The Analysis
+    blocks carry no generated markers (the writer edits their tables and bullets in
+    place), so a filled line is told apart from a scaffold placeholder this way instead."""
+    return "{" in line or "}" in line
+
+
+def filled_lines_after_heading(rows, head_line):
+    """Substantive lines under one heading, up to the next, with no {…} placeholder
+    markup left in them — R-ANALYSIS-EMPTY's "the writer put something of their own
+    here"."""
+    lines = []
+    body = [r for r in rows if r[0] > head_line]
+    for n, (i, line, _, in_code) in enumerate(body):
+        if not in_code and re.match(r"^#{1,4}\s+", line):
+            break
+        if TABLE_SEPARATOR_RE.match(line):
+            continue
+        # A table's header row is the scaffold's, so it counts for nothing.
+        following = body[n + 1][1] if n + 1 < len(body) else ""
+        if line.lstrip().startswith("|") and TABLE_SEPARATOR_RE.match(following):
+            continue
+        if is_substantive(line) and not has_placeholder_braces(line):
+            lines.append(line)
+    return lines
+
+
+TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
+
+
+def is_ach_placeholder_row(cells):
+    """A row still carrying the scaffold's own example ("| E# | + | − | high |")."""
+    joined = "|".join(cells)
+    return "{" in joined or "}" in joined or "E#" in joined
+
+
+def audit(report_text, evidence_log, citation_check=None, rival=None):
     findings = []
 
     def add(severity, code, message, location=""):
@@ -113,6 +218,7 @@ def audit(report_text, evidence_log, citation_check=None):
     rows = classify_lines(report_text)
     evidence = evidence_log.get("evidence", [])
     known_ids = {e.get("id") for e in evidence}
+    evidence_by_id = {e.get("id"): e for e in evidence}
     kq_ids = [k.get("id") for k in evidence_log.get("key_questions", [])]
 
     # 1. Resolving the evidence markers.
@@ -275,24 +381,7 @@ def audit(report_text, evidence_log, citation_check=None):
                      if not in_code and re.match(r"^#{1,4}\s+", line)
                      and section_matches(line, labels.section_keywords("COUNTER"))]
     for head in counter_heads:
-        body_lines = []
-        in_generated = False
-        for i, line, _, in_code in rows:
-            if i <= head:
-                continue
-            if not in_code and re.match(r"^#{1,4}\s+", line):
-                break
-            if GENERATED_BEGIN_RE.match(line):
-                in_generated = True
-                continue
-            if GENERATED_END_RE.match(line):
-                in_generated = False
-                continue
-            if in_generated:
-                continue
-            if is_substantive(line):
-                body_lines.append(line)
-        if not body_lines:
+        if not body_after_heading(rows, head):
             add("FAIL", "R-COUNTER-EMPTY",
                 "the disconfirmation section holds nothing the writer wrote (a table "
                 "generated from the ledger does not satisfy it; state what the "
@@ -320,13 +409,129 @@ def audit(report_text, evidence_log, citation_check=None):
             add("FAIL", "R-CITECOMP",
                 f"{len(missing)} evidence units have no result in citation_check.json: "
                 f"{', '.join(missing[:10])}")
-        crit = [r.get("id") for r in citation_check.get("results", [])
-                if r.get("severity") == "CRITICAL"]
+        # A CRITICAL record is cleared once a verifier has judged the unit it names: a
+        # re-read that found the quote (quote_check "found"), or a unit refuted out of
+        # the report already, where R-REFUTED guards its citation on its own.
+        crit = []
+        for r in citation_check.get("results", []):
+            if r.get("severity") != "CRITICAL":
+                continue
+            verification = (evidence_by_id.get(r.get("id")) or {}).get("verification") or {}
+            if verification.get("quote_check") == "found":
+                continue
+            if verification.get("status") == "refuted":
+                continue
+            crit.append(r.get("id"))
         if crit:
             add("FAIL", "R-CITECOMP",
-                f"the citation check reports {len(crit)} CRITICAL: {', '.join(crit[:10])}")
+                f"the citation check reports {len(crit)} CRITICAL, unjudged: "
+                f"{', '.join(crit[:10])}")
         citation_summary = {"checked": len(checked), "missing": len(missing),
                             "critical": len(crit)}
+
+    # 16. R-ANALYSIS-TYPE: the header names one of the recognised question types.
+    qtype = labels.question_type_of(header_text(report_text))
+    if qtype is None:
+        add("FAIL", "R-ANALYSIS-TYPE",
+            "the header carries no \"- Question type:\" line naming one of "
+            f"{', '.join(labels.QUESTION_TYPES)}")
+
+    analysis_heads = analysis_h3_headings(rows)
+
+    # 17/18. R-ANALYSIS-BLOCK and R-ANALYSIS-EMPTY: every block the question type
+    # requires has a heading under Analysis, and prose of the writer's own past it.
+    if qtype is not None:
+        required = list(labels.ANALYSIS_REQUIRED.get(qtype, ()))
+        if rival is None and "RIVAL" in required:
+            required.remove("RIVAL")
+        for code in required:
+            heading = labels.ANALYSIS_BLOCKS[code]
+            match = next((h for h in analysis_heads if heading.lower() in h[1].lower()), None)
+            if not match:
+                add("FAIL", "R-ANALYSIS-BLOCK",
+                    f"the analysis block \"{heading}\", required for a {qtype} question, "
+                    "has no heading under the Analysis section")
+                continue
+            if not filled_lines_after_heading(rows, match[0]):
+                add("FAIL", "R-ANALYSIS-EMPTY",
+                    f"the \"{heading}\" analysis block still carries only the "
+                    "scaffold's {…} placeholders", f"line {match[0]}")
+
+    # 19. R-ACH-DIAG: the Hypothesis matrix carries at least one "high" diagnosticity row.
+    ach_head = next((h for h in analysis_heads
+                     if labels.ANALYSIS_BLOCKS["ACH"].lower() in h[1].lower()), None)
+    if ach_head:
+        ach_rows = [r for r in table_rows_in_body(rows, ach_head[0])
+                   if not is_ach_placeholder_row(r)]
+        if not any(r and r[-1].strip().lower() == "high" for r in ach_rows):
+            add("WARN", "R-ACH-DIAG",
+                "the Hypothesis matrix has no row with diagnosticity \"high\"")
+
+    # 20. R-SELFREPORT: a self-reported, single-source key figure must not carry the
+    # Answer to the decision or the Summary.
+    self_report_ids = {e.get("id") for e in evidence
+                       if e.get("self_reported") and e.get("corroboration") == "single_source"}
+    answer_summary = labels.section_keywords("DECISION") + labels.section_keywords("SUMMARY")
+    for i, line, section, in_code in rows:
+        if in_code or not section_matches(section, answer_summary):
+            continue
+        for m in EVIDENCE_MARKER_RE.finditer(line):
+            eid = f"E{m.group(1)}"
+            if eid in self_report_ids:
+                add("FAIL", "R-SELFREPORT",
+                    f"the Answer/Summary cites {eid}, a self-reported single-source figure",
+                    f"line {i}")
+
+    # 21. R-OVERTURN: the decision section states what would overturn the conclusion.
+    overturn_re = re.compile(re.escape(labels.OVERTURN_LABEL) + r"\s*[:：]\s*\S")
+    decision_words = labels.section_keywords("DECISION")
+    has_overturn = any(section_matches(section, decision_words) and overturn_re.search(line)
+                       for _, line, section, in_code in rows if not in_code)
+    if not has_overturn:
+        add("WARN", "R-OVERTURN",
+            f"the decision section has no \"{labels.OVERTURN_LABEL}:\" line with text")
+
+    # 22/23. R16: R-RIVAL / R-RIVAL-CAP, only when a rival ran.
+    if rival is not None:
+        recon = labels.RECONCILIATION_RE.search(report_text)
+        rival_head = next((h for h in analysis_heads
+                           if labels.ANALYSIS_BLOCKS["RIVAL"].lower() in h[1].lower()), None)
+        if not rival_head or not recon:
+            add("FAIL", "R-RIVAL",
+                f"no \"### {labels.ANALYSIS_BLOCKS['RIVAL']}\" heading with a "
+                "Reconciliation line was found")
+        elif recon.group(1).lower() == "differs":
+            has_settle = labels.SETTLE_LABEL.lower() in report_text.lower()
+            overall_rank = None
+            hm = re.search(r"overall confidence\s*[:：]\s*\**\s*([a-z ]+?)\s*[\(（]",
+                           report_text, re.IGNORECASE)
+            if hm:
+                lbl = hm.group(1).strip().lower()
+                if lbl in labels.CONFIDENCE_LABELS:
+                    overall_rank = labels.CONFIDENCE_LABELS.index(lbl)
+            too_strong = overall_rank is not None and overall_rank < labels.RIVAL_CAP_RANK
+            if not has_settle or too_strong:
+                add("FAIL", "R-RIVAL-CAP",
+                    "the rival reading differs, so the report needs a "
+                    f"\"{labels.SETTLE_LABEL}\" line and an overall confidence no "
+                    f"stronger than \"{labels.confidence_label(labels.RIVAL_CAP_RANK)}\"")
+
+    # 24. R-COVERAGE-PLACEHOLDER: the KQ coverage table is the writer's own past its
+    # evidence and verification columns; a row still carrying the scaffold's placeholder
+    # means the Conclusion or the Confidence column was left unfilled.
+    coverage_head = next((i for i, line, _, in_code in rows
+                         if not in_code and re.match(r"^#{1,4}\s+", line)
+                         and section_matches(line, coverage)), None)
+    if coverage_head is not None:
+        placeholder_rows = sum(
+            1 for cells in table_rows_in_body(rows, coverage_head)
+            if any(labels.T("coverage_conclusion") in c or labels.T("coverage_label") in c
+                   for c in cells))
+        if placeholder_rows:
+            add("WARN", "R-COVERAGE-PLACEHOLDER",
+                f"{placeholder_rows} row(s) of the KQ coverage table still carry the "
+                f"scaffold's placeholder (\"{labels.T('coverage_conclusion')}\" or "
+                f"\"{labels.T('coverage_label')}\")", f"line {coverage_head}")
 
     coverage = {
         "kq_total": len(kq_ids),
@@ -346,10 +551,13 @@ def main():
     parser.add_argument("--evidence", required=True, help="path to evidence_log.json")
     parser.add_argument("--citation", default=None,
                         help="path to citation_check.json (checks R13 completeness and CRITICAL)")
+    parser.add_argument("--rival", default=None,
+                        help="path to rival.json (checks R16: R-RIVAL / R-RIVAL-CAP)")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
     args = parser.parse_args()
 
     citation_check = None
+    rival = None
     try:
         with open(args.report, encoding="utf-8") as f:
             report_text = f.read()
@@ -358,6 +566,9 @@ def main():
         if args.citation:
             with open(args.citation, encoding="utf-8") as f:
                 citation_check = json.load(f)
+        if args.rival:
+            with open(args.rival, encoding="utf-8") as f:
+                rival = json.load(f)
     except OSError as e:
         print(f"error: cannot read the file: {e}", file=sys.stderr)
         return 2
@@ -365,7 +576,7 @@ def main():
         print(f"error: not valid JSON: {e}", file=sys.stderr)
         return 2
 
-    findings, coverage = audit(report_text, evidence_log, citation_check)
+    findings, coverage = audit(report_text, evidence_log, citation_check, rival)
     fails = [f for f in findings if f["severity"] == "FAIL"]
     warns = [f for f in findings if f["severity"] == "WARN"]
     verdict = "FAIL" if fails else ("WARN" if warns else "PASS")

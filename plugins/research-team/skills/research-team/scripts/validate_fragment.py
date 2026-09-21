@@ -32,7 +32,7 @@ import sys
 from evidence_auditor import (BACKGROUND_FLOOR_MODE, BASE_FLOOR_MODE, FLOORS,
                               MIN_ROLE_ALLOCATION, ROLES,
                               VALID_RELEVANCE, _configure_stdout, validate_early_stop)
-from merge_fragments import FRAGMENT_RE, validate_evidence
+from merge_fragments import FRAGMENT_RE, normalize_gap, validate_evidence
 
 SEARCH_FACETS = ("definition", "data", "counter", "practice")
 
@@ -78,6 +78,13 @@ def validate(frag, mode, role, relevance="decision"):
         if reason:
             tmp_id = e.get("id") if isinstance(e, dict) else None
             add("FAIL", "F-EVIDENCE", reason, f"evidence[{i}] (id={tmp_id})")
+
+    for i, g in enumerate(frag.get("gaps") or []):
+        _, notes = normalize_gap(g)
+        if notes:
+            add("WARN", "F-GAP-SHAPE",
+                "the merge takes this gap in under a different shape: "
+                + "; ".join(notes), f"gaps[{i}]")
 
     # The floors that apply: a background KQ in DEEP gets STANDARD's (collection_standards.md §1).
     effective_mode = BACKGROUND_FLOOR_MODE if (mode == "DEEP" and relevance == "background") else mode

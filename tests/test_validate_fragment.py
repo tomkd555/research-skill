@@ -125,6 +125,83 @@ def main():
         rc, res = run(p, "DEEP")
         check("a missing required field fails", "F-EVIDENCE" in codes(res), str(codes(res)))
 
+        print("[required field values]")
+
+        def broken(field, value, base_id=1):
+            e = ev(base_id)
+            if "." in field:
+                obj, key = field.split(".")
+                e[obj][key] = value
+            else:
+                e[field] = value
+            return fragment(deep_ok, evidence=[e, ev(2)])
+
+        def messages(res, code):
+            return [f["message"] for f in res["findings"] if f["code"] == code]
+
+        p = write(tmp, "kq1_collector.json", broken("claim_type", "rumor"))
+        rc, res = run(p, "DEEP")
+        check("an out-of-enum claim_type fails", "F-EVIDENCE" in codes(res), str(codes(res)))
+        check("the message names the field and the value",
+              any("claim_type" in m and "'rumor'" in m for m in messages(res, "F-EVIDENCE")),
+              messages(res, "F-EVIDENCE"))
+
+        p = write(tmp, "kq1_collector.json",
+                 broken("corroboration", {"status": "corroborated"}))
+        rc, res = run(p, "DEEP")
+        check("a dict corroboration fails cleanly (no crash)",
+              "F-EVIDENCE" in codes(res) and rc == 1, str(codes(res)))
+
+        p = write(tmp, "kq1_collector.json", broken("source.grade", "D"))
+        rc, res = run(p, "DEEP")
+        check("an out-of-enum source.grade fails", "F-EVIDENCE" in codes(res), str(codes(res)))
+        check("the message names source.grade and the value",
+              any("source.grade" in m and "'D'" in m for m in messages(res, "F-EVIDENCE")),
+              messages(res, "F-EVIDENCE"))
+
+        p = write(tmp, "kq1_collector.json", broken("source.url", "example.com/no-scheme"))
+        rc, res = run(p, "DEEP")
+        check("a source.url with no scheme fails", "F-EVIDENCE" in codes(res), str(codes(res)))
+
+        p = write(tmp, "kq1_collector.json", broken("source.published", "25-04"))
+        rc, res = run(p, "DEEP")
+        check("a malformed source.published fails", "F-EVIDENCE" in codes(res), str(codes(res)))
+
+        p = write(tmp, "kq1_collector.json", broken("is_key_figure", "false"))
+        rc, res = run(p, "DEEP")
+        check("a string is_key_figure fails (a bool is required)",
+              "F-EVIDENCE" in codes(res), str(codes(res)))
+
+        p = write(tmp, "kq1_collector.json",
+                 broken("verbatim_quote", "the first part ... the joined-in second part"))
+        rc, res = run(p, "DEEP")
+        check("a verbatim_quote holding an ellipsis fails",
+              "F-EVIDENCE" in codes(res), str(codes(res)))
+
+        p = write(tmp, "kq1_collector.json",
+                 broken("verbatim_quote", "the first part … second part"))
+        rc, res = run(p, "DEEP")
+        check("a verbatim_quote holding the ellipsis character fails",
+              "F-EVIDENCE" in codes(res), str(codes(res)))
+
+        print("[gap shape at intake]")
+        with_gaps = fragment(deep_ok)
+        with_gaps["gaps"] = [
+            "a plain-string gap with no structure",
+            {"claim": "already the schema shape", "tried_queries": ["q1"], "recommended": "r"},
+            {"claim": "renamed keys", "queries_tried": "q1", "would_settle_it": "an interview"},
+        ]
+        p = write(tmp, "kq1_collector.json", with_gaps)
+        rc, res = run(p, "DEEP")
+        shape_msgs = messages(res, "F-GAP-SHAPE")
+        check("a plain-string gap warns", len(shape_msgs) == 2, shape_msgs)
+        flagged = any("already the schema shape" in m for m in shape_msgs)
+        check("the already-shaped gap raises no warning", flagged is False, shape_msgs)
+        check("the renamed keys are named in the warning",
+              any("queries_tried -> tried_queries" in m for m in shape_msgs)
+              and any("would_settle_it -> recommended" in m for m in shape_msgs), shape_msgs)
+        check("a gap warning does not fail the fragment", res["verdict"] == "PASS", codes(res))
+
         print("[disconfirmation and floor_status are required]")
         no_disc = fragment(deep_ok)
         no_disc["disconfirmation"] = []

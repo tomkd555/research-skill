@@ -2,26 +2,40 @@
 """render_scaffold.py — build the report skeleton and the per-KQ slices from the ledger.
 
 Run it before the writing in research-team Step 4. Everything in the report that is a
-transcription of the ledger — the header metrics, the evidence and verification columns
-of the KQ coverage table, the search-log table, the source list — is generated here, so
-the orchestrator never copies the same rows twice across the two writing passes. The
-analysis sections (the answer to the decision, the summary, the per-KQ conclusions,
-disconfirmation, insight, limitations) get their headings only; the writer fills them.
+transcription of the ledger — the header metrics, the search-log table, the source list —
+is generated here, so the orchestrator never copies the same rows twice across the two
+writing passes. The analysis sections (the answer to the decision, the summary, the
+per-KQ conclusions, disconfirmation, insight, limitations) get their headings only; the
+writer fills them. The `## Analysis` section gets its headings and placeholder tables the
+same way: the writer edits the placeholders in place, so those blocks carry no markers of
+their own. The KQ coverage table carries no markers either: its evidence and verification
+columns come from the ledger, but its Conclusion and Confidence columns are the writer's,
+so it is rendered once and left in place afterwards.
+
+Every ledger-derived block sits between a `<!-- generated:NAME -->` / `<!-- /generated:NAME -->`
+pair. `--merge` uses those markers to refresh a report's generated regions in place, after
+a resubmission changes the ledger, without touching the writer's own prose; it locates a
+missing Analysis block or a missing KQ coverage table by its heading and appends it whole.
 
 A per-KQ slice (kq_slices/KQ{n}.md) tabulates that key question's evidence alone. It is
 the unit of split synthesis (interpretation_contract.md §3), and reading one is
 equivalent to reading the ledger.
 
 Examples:
-    python render_scaffold.py evidence_log.json --out report_scaffold.md --slices kq_slices/
+    python render_scaffold.py evidence_log.json --out report_scaffold.md --slices kq_slices/ \\
+        --question-type diagnostic
+    python render_scaffold.py evidence_log.json --slices kq_slices/
+    python render_scaffold.py evidence_log.json --merge report.md
     python render_scaffold.py evidence_log.json --out report.md --slices kq_slices/ --json
 
 Exit codes: 0 = fine / 2 = usage or I/O error
 """
 
 import argparse
+import datetime
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -30,13 +44,29 @@ from labels import T
 
 CROSS_SLICE_NAME = "cross_cutting.md"
 
+
+def gen_begin(name):
+    return f"<!-- generated:{name} -->"
+
+
+def gen_end(name):
+    return f"<!-- /generated:{name} -->"
+
+
 # Markers around a generated region. report_auditor.py's emptiness check for the
 # disconfirmation section discounts the lines between each pair, so transcribing the
-# ledger cannot on its own satisfy the check.
-DISCONFIRMATION_BEGIN = "<!-- generated:disconfirmation -->"
-DISCONFIRMATION_END = "<!-- /generated:disconfirmation -->"
-EARLY_STOP_BEGIN = "<!-- generated:early_stop -->"
-EARLY_STOP_END = "<!-- /generated:early_stop -->"
+# ledger cannot on its own satisfy the check. The Analysis blocks carry no markers: the
+# writer edits their placeholder tables and bullets in place, so a generated region
+# there would mean --merge overwrote that editing.
+DISCONFIRMATION_BEGIN = gen_begin("disconfirmation")
+DISCONFIRMATION_END = gen_end("disconfirmation")
+EARLY_STOP_BEGIN = gen_begin("early_stop")
+EARLY_STOP_END = gen_end("early_stop")
+
+# A whole generated region, wherever it sits: begin marker, its content, matching end
+# marker. Used by --merge to line up a fresh region with the one it replaces.
+MARKER_RE = re.compile(
+    r"<!--\s*generated:(\w+)\s*-->.*?<!--\s*/generated:\1\s*-->", re.DOTALL)
 
 VERIFICATION_STATES = ("confirmed", "plausible", "disputed", "refuted", "unchecked")
 
@@ -166,6 +196,9 @@ def disconfirmation_table(rows):
 
 
 def coverage_table(log):
+    """The KQ coverage table. The Conclusion and Confidence columns carry the scaffold's
+    placeholders; the writer fills them in place. The evidence and verification columns
+    come from the ledger, so a fresh render always states them correctly."""
     rows = [T("tbl_coverage"), "|---|---|---|---|---|"]
     evidence = log.get("evidence", [])
     for kq in log.get("key_questions", []):
@@ -184,6 +217,22 @@ def coverage_table(log):
     return "\n".join(rows)
 
 
+def coverage_section(log):
+    """The `## KQ coverage` heading plus its table. Rendered once, with no
+    generated:NAME markers around it; --merge locates it by the heading."""
+    return [T("sec_coverage"), "", coverage_table(log), ""]
+
+
+def has_coverage_heading(text):
+    """Does text already carry a heading naming the KQ coverage section?"""
+    keywords = labels.section_keywords("COVERAGE")
+    for line in text.splitlines():
+        m = re.match(r"^#{1,4}\s+(.+?)\s*$", line)
+        if m and any(k in m.group(1).lower() for k in keywords):
+            return True
+    return False
+
+
 def search_log_table(log):
     rows = [T("tbl_searchlog"), "|---|---|---|---|---|"]
     for s in log.get("search_log", []):
@@ -197,9 +246,10 @@ def sources_list(log):
     lines = []
     for e in log.get("evidence", []):
         s = e.get("source") or {}
+        suffix = " (user-supplied local file)" if s.get("user_supplied") else ""
         lines.append(f"- [{e.get('id')}] {s.get('publisher', '')}. {s.get('title', '')}. "
                      f"{s.get('published', '')}. {T('grade_prefix')}"
-                     f"{s.get('grade', '')}. {s.get('url', '')}")
+                     f"{s.get('grade', '')}. {s.get('url', '')}{suffix}")
     return "\n".join(lines)
 
 
@@ -233,7 +283,93 @@ def early_stop_table(log):
     return "\n".join(rows)
 
 
-def build_scaffold(log):
+# ----------------------------------------------------------- the Analysis section
+
+def _plus_one_year(as_of):
+    """The as_of date, twelve months on (the Premortem's "it is {…} and it failed")."""
+    try:
+        d = datetime.date.fromisoformat(as_of)
+    except (TypeError, ValueError):
+        return f"{as_of} + 12 months" if as_of else "{as_of + 12 months}"
+    try:
+        return d.replace(year=d.year + 1).isoformat()
+    except ValueError:
+        # as_of was a leap day; there is no such day a non-leap year later.
+        return d.replace(year=d.year + 1, day=28).isoformat()
+
+
+def _ach_body(log):
+    rows = [T("tbl_ach"), "|---|---|---|---|", "| E# | + | − | high |"]
+    return "\n".join(rows) + "\n\n" + T("tbl_ach_legend") + "\n\n" + T("blk_ach_lines")
+
+
+def _mechanism_body(log):
+    return T("blk_mechanism")
+
+
+def _outside_body(log):
+    return T("blk_outside")
+
+
+def _incentive_body(log):
+    rows = [T("tbl_incentive"), "|---|---|---|---|---|"]
+    figures = [e for e in log.get("evidence", []) if e.get("is_key_figure")]
+    for e in figures:
+        s = e.get("source") or {}
+        self_reported = "true" if e.get("self_reported") else "false"
+        rows.append(f"| {esc(e.get('id'))} | {esc(s.get('publisher'))} | {{…}} | "
+                    f"{self_reported} | {esc(', '.join(e.get('corroborating_ids') or []))} |")
+    if not figures:
+        rows.append(T("tbl_incentive_empty"))
+    rows += ["", T("blk_incentive_line")]
+    return "\n".join(rows)
+
+
+def _second_body(log):
+    return "\n".join([T("tbl_second"), "|---|---|---|---|---|", T("tbl_second_row")])
+
+
+def _premortem_body(log):
+    return T("blk_premortem") % _plus_one_year(log.get("as_of", ""))
+
+
+def _rival_body(log):
+    return T("blk_rival")
+
+
+ANALYSIS_BODY = {
+    "ACH": _ach_body,
+    "MECHANISM": _mechanism_body,
+    "OUTSIDE": _outside_body,
+    "INCENTIVE": _incentive_body,
+    "SECOND": _second_body,
+    "PREMORTEM": _premortem_body,
+    "RIVAL": _rival_body,
+}
+
+
+def analysis_block(code, log):
+    """One Analysis block: its H3 heading plus the placeholder table or bullets the
+    writer edits in place. No markers: --merge must never overwrite that editing."""
+    heading = labels.ANALYSIS_BLOCKS[code]
+    return [T("blk_head") % heading, "", ANALYSIS_BODY[code](log), ""]
+
+
+def analysis_has_block(text, code):
+    """Does text already carry this block's H3 heading?"""
+    heading = labels.ANALYSIS_BLOCKS[code]
+    return bool(re.search(r"(?m)^###[ \t]+.*" + re.escape(heading), text, re.IGNORECASE))
+
+
+def analysis_section(log, question_type):
+    """The `## Analysis` section: only the blocks labels.ANALYSIS_REQUIRED names."""
+    parts = [T("sec_analysis"), "", T("analysis_note"), ""]
+    for code in labels.ANALYSIS_REQUIRED.get(question_type, ()):
+        parts += analysis_block(code, log)
+    return parts
+
+
+def build_scaffold(log, question_type="descriptive"):
     m = header_metrics(log)
     kqs = log.get("key_questions", [])
     evidence = live_evidence(log.get("evidence", []))
@@ -242,16 +378,21 @@ def build_scaffold(log):
     parts = [
         T("report_title") % log.get("topic", ""),
         "",
+        gen_begin("header"),
         T("hdr_meta") % (m["as_of"], m["mode"]),
         T("hdr_counts") % (m["independent_sources"], m["evidence_units"])
         + (T("hdr_excluded") % m["excluded_units"] if m["excluded_units"] else "")
         + T("hdr_verified") % m["verified_claims"],
         T("hdr_breakdown") + sep.join(f"{s} {bd[s]}" for s in VERIFICATION_STATES),
+        gen_end("header"),
+        T("hdr_qtype") % question_type,
         T("hdr_overall"),
         "",
         T("sec_decision"),
         "",
         T("decision_placeholder"),
+        "",
+        T("decision_overturn"),
         "",
         T("sec_summary"),
         "",
@@ -265,16 +406,20 @@ def build_scaffold(log):
         mine = [e for e in evidence if kq_id in (e.get("kq_ids") or [])]
         label, band, reason = confidence_ceiling(mine)
         ceiling = f"{label} ({band})" if band else label
+        marker = f"kq_{kq_id}" if kq_id else "kq_"
         parts += [
             f"### {kq_id}: {kq.get('text', '')}",
             "",
+            gen_begin(marker),
             T("ceil_line") % (ceiling, reason),
             "",
             evidence_table(mine),
+            gen_end(marker),
             "",
             T("placeholder"),
             "",
         ]
+    parts += analysis_section(log, question_type)
     parts += [
         T("sec_counter"),
         "",
@@ -290,7 +435,9 @@ def build_scaffold(log):
         "",
         T("sec_limits"),
         "",
+        gen_begin("gaps"),
         gaps_table(log),
+        gen_end("gaps"),
         "",
         EARLY_STOP_BEGIN,
         early_stop_table(log),
@@ -298,20 +445,60 @@ def build_scaffold(log):
         "",
         T("placeholder"),
         "",
-        T("sec_coverage"),
-        "",
-        coverage_table(log),
-        "",
+        *coverage_section(log),
         T("sec_searchlog"),
         "",
+        gen_begin("searchlog"),
         search_log_table(log),
+        gen_end("searchlog"),
         "",
         T("sec_sources"),
         "",
+        gen_begin("sources"),
         sources_list(log),
+        gen_end("sources"),
         "",
     ]
     return "\n".join(parts)
+
+
+def merge_scaffold(fresh_text, existing_text, log, question_type):
+    """Refresh every generated:NAME region of existing_text with fresh_text's region of
+    the same name, leaving everything outside the markers untouched. The Analysis blocks
+    and the KQ coverage table carry no markers, so none of the writer's editing there is
+    ever replaced; a required Analysis block existing_text does not already have (found
+    by its H3 heading) is appended whole before sec_counter, and a KQ coverage table
+    (found by its heading) is appended whole before sec_searchlog. Returns
+    (merged_text, missing_regions).
+    """
+    fresh_blocks = {m.group(1): m.group(0) for m in MARKER_RE.finditer(fresh_text)}
+    existing_names = {m.group(1) for m in MARKER_RE.finditer(existing_text)}
+
+    def repl(m):
+        return fresh_blocks.get(m.group(1), m.group(0))
+
+    merged = MARKER_RE.sub(repl, existing_text)
+    missing = [name for name in fresh_blocks if name not in existing_names]
+
+    to_append = [code for code in labels.ANALYSIS_REQUIRED.get(question_type, ())
+                if not analysis_has_block(merged, code)]
+    if to_append:
+        insert = "\n".join("\n".join(analysis_block(code, log)) for code in to_append)
+        idx = merged.find(T("sec_counter"))
+        if idx == -1:
+            missing = missing + [f"analysis:{labels.ANALYSIS_BLOCKS[code]}" for code in to_append]
+        else:
+            merged = merged[:idx] + insert + "\n" + merged[idx:]
+
+    if not has_coverage_heading(merged):
+        insert = "\n".join(coverage_section(log))
+        idx = merged.find(T("sec_searchlog"))
+        if idx == -1:
+            missing = missing + ["coverage"]
+        else:
+            merged = merged[:idx] + insert + "\n" + merged[idx:]
+
+    return merged, missing
 
 
 def evidence_entries(items):
@@ -389,13 +576,40 @@ def main():
     parser = argparse.ArgumentParser(
         description="Build the report skeleton and the per-KQ slices from the ledger")
     parser.add_argument("log", help="path to evidence_log.json")
-    parser.add_argument("--out", required=True,
-                        help="where the skeleton goes (report_scaffold.md and the like)")
+    out_group = parser.add_mutually_exclusive_group()
+    out_group.add_argument("--out", default=None,
+                           help="where the skeleton goes (report_scaffold.md and the like); "
+                                "required unless --slices or --merge is given")
+    out_group.add_argument("--merge", default=None, metavar="INTO.md",
+                           help="refresh the generated regions of an existing report in "
+                                "place, leaving the writer's prose untouched")
     parser.add_argument("--slices", default=None, help="output directory for the per-KQ slices")
+    parser.add_argument("--question-type", choices=labels.QUESTION_TYPES, default=None,
+                        help="which Analysis blocks are required (default: descriptive)")
     parser.add_argument("--json", action="store_true", help="print the summary as JSON")
     parser.add_argument("--force", action="store_true",
-                        help="overwrite the output even if it exists (any writing is lost)")
+                        help="overwrite --out even if it exists (any writing there is "
+                             "lost; --merge is how a resubmission refreshes a report in place)")
     args = parser.parse_args()
+
+    if not args.out and not args.merge and not args.slices:
+        parser.error("one of --out, --merge or --slices is required")
+
+    existing_text = None
+    if args.merge:
+        try:
+            with open(args.merge, encoding="utf-8") as f:
+                existing_text = f.read()
+        except OSError as e:
+            print(f"error: cannot read the file to merge into: {e}", file=sys.stderr)
+            return 2
+
+    question_type = args.question_type
+    if question_type is None and existing_text is not None:
+        question_type = labels.question_type_of(existing_text)
+    if question_type is None:
+        question_type = "descriptive"
+        print("note: --question-type not given; defaulting to descriptive", file=sys.stderr)
 
     try:
         with open(args.log, encoding="utf-8") as f:
@@ -407,21 +621,27 @@ def main():
         print(f"error: the ledger is not valid JSON: {e}", file=sys.stderr)
         return 2
 
-    if os.path.exists(args.out) and not args.force:
+    if args.out and os.path.exists(args.out) and not args.force:
         print(f"error: the output already exists: {args.out}\n"
-              "  It is not overwritten, so that writing already done survives. To regenerate\n"
-              "  after a resubmission, write to --out report_scaffold.md and replace only the\n"
-              "  generated tables in report.md. Pass --force to rebuild it anyway.",
+              "  It is not overwritten, so that writing already done survives. Use\n"
+              "  --merge INTO.md to refresh the generated regions of a report already\n"
+              "  written. Pass --force to rebuild it anyway.",
               file=sys.stderr)
         return 2
 
-    scaffold = build_scaffold(log)
+    scaffold = build_scaffold(log, question_type)
     slice_paths = []
+    missing_regions = None
     try:
-        out_dir = os.path.dirname(os.path.abspath(args.out))
-        os.makedirs(out_dir, exist_ok=True)
-        with open(args.out, "w", encoding="utf-8") as f:
-            f.write(scaffold)
+        if args.out:
+            out_dir = os.path.dirname(os.path.abspath(args.out))
+            os.makedirs(out_dir, exist_ok=True)
+            with open(args.out, "w", encoding="utf-8") as f:
+                f.write(scaffold)
+        if args.merge:
+            merged, missing_regions = merge_scaffold(scaffold, existing_text, log, question_type)
+            with open(args.merge, "w", encoding="utf-8") as f:
+                f.write(merged)
         if args.slices:
             os.makedirs(args.slices, exist_ok=True)
             for kq in log.get("key_questions", []):
@@ -438,16 +658,24 @@ def main():
         return 2
 
     summary = {
-        "out": os.path.abspath(args.out),
+        "out": os.path.abspath(args.out) if args.out else None,
+        "merge": os.path.abspath(args.merge) if args.merge else None,
         "slices": slice_paths,
         "source_lines": len(log.get("evidence", [])),
         "search_log_rows": len(log.get("search_log", [])),
         **header_metrics(log),
     }
+    if missing_regions is not None:
+        summary["missing_regions"] = missing_regions
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
     else:
-        print(f"skeleton: {summary['out']}")
+        if summary["out"]:
+            print(f"skeleton: {summary['out']}")
+        if summary["merge"]:
+            print(f"merged into: {summary['merge']}")
+            if missing_regions:
+                print(f"  regions the target lacks: {', '.join(missing_regions)}")
         print(f"  sources {summary['source_lines']} rows / "
               f"search log {summary['search_log_rows']} rows / "
               f"independent sources {summary['independent_sources']} / "

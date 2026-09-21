@@ -5,6 +5,7 @@ They cover the required role-assignment check and the WebSearch budget estimate.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,7 +38,21 @@ def codes(result, severity=None):
             if severity is None or f["severity"] == severity]
 
 
-def brief(mode, n_kq, roles_line="- Role assignment: KQ1=collector, KQ2=scholar"):
+def qa_block(qtype="descriptive", decision="A team decides which vendor to adopt by Q1."):
+    return f"""## Question analysis
+
+- Decision: {decision}
+- Question type: {qtype}
+- Presuppositions:
+  - The market is open to new entrants — verify → KQ1
+  - The data covers the full period — accept — it is the national statistics agency
+- Useless answer: A general market overview with no bearing on the vendor choice.
+- Pivotal observation: Whether the leading vendor's SLA still holds under the new regulation.
+"""
+
+
+def brief(mode, n_kq, roles_line="- Role assignment: KQ1=collector, KQ2=scholar",
+          qtype="descriptive"):
     kq_lines = "\n".join(f"- KQ{i}: Does proposition {i} hold?" for i in range(1, n_kq + 1))
     return f"""# Research plan: a test topic
 
@@ -48,6 +63,7 @@ def brief(mode, n_kq, roles_line="- Role assignment: KQ1=collector, KQ2=scholar"
 
 It feeds a decision.
 
+{qa_block(qtype)}
 ## Key questions
 
 {kq_lines}
@@ -87,6 +103,17 @@ DECISION_BRIEF = """# Research plan: edge inference chips
 ## Purpose
 
 Decide which edge inference chip to standardise on for the 2027 product line.
+
+## Question analysis
+
+- Decision: The product line standardises on one edge inference chip vendor for 2027.
+- Question type: evaluative
+- Presuppositions:
+  - At least one vendor ships under 5 W today — verify → KQ1
+  - Throughput per watt is the deciding criterion — accept — it is the stated product
+    requirement
+- Useless answer: A survey of every chip on the market with no ranking against the criterion.
+- Pivotal observation: Whether a newer entrant's throughput per watt now exceeds the incumbent's.
 
 ## Key questions
 
@@ -148,8 +175,8 @@ def main():
 
         print("[the search budget estimate]")
         # DEEP, 7 KQs, both roles: collection ceil((12 + 4.8) * 7) = 118 plus
-        # verification 60 = 178. The verification share follows the batch cap
-        # (DEEP: 10 batches x 3 claims x 2 queries) and does not grow with the KQ count.
+        # verification 50 = 168. The verification share follows the batch cap
+        # (DEEP: 5 batches x 5 claims x 2 queries) and does not grow with the KQ count.
         deep_roles = ", ".join(f"KQ{i}=collector+scholar" for i in range(1, 8))
         p = write(tmp, "deep7.md", brief("DEEP", 7,
                                          roles_line=f"- Role assignment: {deep_roles}"))
@@ -158,26 +185,26 @@ def main():
               str(codes(res, "FAIL")))
         check("it exits 1", rc == 1, f"rc={rc}")
         msg = next(f["message"] for f in res["findings"] if f["code"] == "P-BUDGET")
-        check("it reports the estimate of 178", "178" in msg, msg)
+        check("it reports the estimate of 168", "168" in msg, msg)
 
         rc, res = lint(p, "DEEP", limit="400")
         check("a cap of 400 does not fail", "P-BUDGET" not in codes(res, "FAIL"),
               str(codes(res, "FAIL")))
 
-        # scholar alone gets the 0.4 factor: collection ceil(4.8 * 7) = 34 plus 60 = 94.
+        # scholar alone gets the 0.4 factor: collection ceil(4.8 * 7) = 34 plus 50 = 84.
         scholar_roles = ", ".join(f"KQ{i}=scholar" for i in range(1, 8))
         p = write(tmp, "deep7s.md", brief("DEEP", 7,
                                           roles_line=f"- Role assignment: {scholar_roles}"))
         rc, res = lint(p, "DEEP", limit="200")
         msg = next(f["message"] for f in res["findings"] if f["code"] == "P-BUDGET")
-        check("scholar alone carries the 0.4 factor", "94" in msg, msg)
+        check("scholar alone carries the 0.4 factor", "84" in msg, msg)
 
         # A role assignment that cannot be read per KQ is estimated as both roles.
         p = write(tmp, "vague.md",
                   brief("DEEP", 7, roles_line="- Role assignment: assigned by subject"))
         rc, res = lint(p, "DEEP", limit="200")
         msg = next(f["message"] for f in res["findings"] if f["code"] == "P-BUDGET")
-        check("an unreadable assignment is estimated as both roles", "178" in msg, msg)
+        check("an unreadable assignment is estimated as both roles", "168" in msg, msg)
         check("and is reported as a WARN", "P-ROLE-UNREADABLE" in codes(res, "WARN"),
               str(codes(res, "WARN")))
 
@@ -186,6 +213,60 @@ def main():
         rc, res = lint(p, "DEEP", limit="200")
         check("a DEEP plan tagging every KQ passes", rc == 0 and not codes(res, "FAIL"),
               codes(res, "FAIL"))
+
+        print("[the Question analysis section]")
+        missing_field_brief = brief("STANDARD", 2).replace(
+            "- Useless answer: A general market overview with no bearing on the vendor "
+            "choice.\n", "")
+        p = write(tmp, "qa_missing_field.md", missing_field_brief)
+        rc, res = lint(p, "STANDARD")
+        qa_fields_msg = next((f["message"] for f in res["findings"]
+                              if f["code"] == "P-QA-FIELDS"), "")
+        check("a missing Question analysis field fails, naming it",
+              "P-QA-FIELDS" in codes(res, "FAIL") and "useless answer" in qa_fields_msg.lower(),
+              qa_fields_msg)
+
+        p = write(tmp, "qa_bad_type.md", brief("STANDARD", 2, qtype="urgent"))
+        rc, res = lint(p, "STANDARD")
+        check("an invalid question type fails", "P-QA-TYPE" in codes(res, "FAIL"),
+              str(codes(res, "FAIL")))
+
+        no_marker_brief = brief("STANDARD", 2).replace(
+            "The market is open to new entrants — verify → KQ1",
+            "The market is open to new entrants")
+        p = write(tmp, "qa_presup_no_marker.md", no_marker_brief)
+        rc, res = lint(p, "STANDARD")
+        check("a presupposition naming neither verify nor accept warns",
+              "P-QA-PRESUP" in codes(res, "WARN"), str(codes(res, "WARN")))
+
+        verify_no_kq_brief = brief("STANDARD", 2).replace(
+            "The market is open to new entrants — verify → KQ1",
+            "The market is open to new entrants — verify")
+        p = write(tmp, "qa_presup_no_kq.md", verify_no_kq_brief)
+        rc, res = lint(p, "STANDARD")
+        check("a verify presupposition naming no KQ warns",
+              "P-QA-PRESUP" in codes(res, "WARN"), str(codes(res, "WARN")))
+
+        short_decision_brief = brief("STANDARD", 2).replace(
+            "- Decision: A team decides which vendor to adopt by Q1.",
+            "- Decision: TBD")
+        p = write(tmp, "qa_short_decision.md", short_decision_brief)
+        rc, res = lint(p, "STANDARD")
+        check("a too-short Decision line warns",
+              "P-QA-DECISION" in codes(res, "WARN"), str(codes(res, "WARN")))
+
+        print("[the rival analyst's cost]")
+        p_desc = write(tmp, "qa_descriptive.md", brief("STANDARD", 2, qtype="descriptive"))
+        p_diag = write(tmp, "qa_diagnostic.md", brief("STANDARD", 2, qtype="diagnostic"))
+        rc, res_desc = lint(p_desc, "STANDARD")
+        rc, res_diag = lint(p_diag, "STANDARD")
+        msg_desc = next(f["message"] for f in res_desc["findings"] if f["code"] == "P-COST")
+        msg_diag = next(f["message"] for f in res_diag["findings"] if f["code"] == "P-COST")
+        agents_desc = int(re.search(r"estimated (\d+) agents", msg_desc).group(1))
+        agents_diag = int(re.search(r"estimated (\d+) agents", msg_diag).group(1))
+        check("a descriptive brief costs one agent less than a diagnostic one, "
+              "the rival analyst",
+              agents_desc + 1 == agents_diag, f"{msg_desc} / {msg_diag}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

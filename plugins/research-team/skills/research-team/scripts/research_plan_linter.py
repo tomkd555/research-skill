@@ -33,7 +33,7 @@ HYPOTHESIS_SECTION = labels.HYPOTHESIS_SECTION
 QUERIES_PER_ROLE = {"DEEP": 12, "STANDARD": 6, "LIGHT": 0}
 # Disconfirmation queries in the verification stage: two per claim (research-verifier
 # step 4). The number of claims follows select_verification_targets.py's cap (batches ×
-# three claims per batch), not the number of KQs.
+# BATCH_SIZE claims per batch) alone; it is independent of the number of KQs.
 COUNTER_QUERIES_PER_CLAIM = 2
 # Academic API calls do not consume the WebSearch cap, so the scholar estimate is scaled.
 SCHOLAR_API_FACTOR = 0.4
@@ -62,6 +62,21 @@ TOOL_CALLS_PER_AUDITOR = 10
 # The cap for one study (DEEP). A plan above it is cut back.
 MAX_AGENTS = {"DEEP": 18, "STANDARD": 12}
 MAX_TOOL_CALLS = {"DEEP": 300, "STANDARD": 180}
+
+# The rival analyst (research-rival.md): one agent, launched whenever the question type is
+# anything but descriptive — including where the type cannot be read, which is costed as
+# needing one so the estimate errs high when the type is unclear.
+TOOL_CALLS_PER_RIVAL = 4
+
+# The five required fields of the Question analysis section (labels.QA_FIELDS), and the
+# rules that check its presuppositions and decision line.
+PRESUP_HEAD_RE = re.compile(r"^-\s*presuppositions\b", re.IGNORECASE)
+PRESUP_VERIFY_RE = re.compile(r"\bverify\b", re.IGNORECASE)
+PRESUP_ACCEPT_RE = re.compile(r"\baccept\b", re.IGNORECASE)
+PRESUP_KQ_REF_RE = re.compile(r"KQ\d+", re.IGNORECASE)
+PRESUP_NONE_RE = re.compile(r"^none identified$", re.IGNORECASE)
+DECISION_LINE_RE = re.compile(r"^-\s*Decision\s*:\s*(.*)$", re.IGNORECASE)
+MIN_DECISION_CHARS = 15
 
 
 def web_search_limit():
@@ -115,17 +130,20 @@ def estimate_search_queries(mode, n_kq, assignment, relevance=None):
         for role in roles_of(assignment, i):
             collection += per_role_for(i) * (SCHOLAR_API_FACTOR if role == "scholar" else 1.0)
 
-    # The verification stage scales with the number of claims verified, not the number
-    # of KQs, and that number is capped by the batch cap — so one more KQ adds no
-    # verification searches.
+    # The verification stage scales with the number of claims verified alone, and that
+    # number is capped by the batch cap — so one more KQ adds no verification searches.
     verification = (VERIFY_BATCHES.get(mode, 0) * VERIFY_CLAIMS_PER_BATCH
                     * COUNTER_QUERIES_PER_CLAIM)
     total = math.ceil(collection) + verification
     return total, {"collection": math.ceil(collection), "verification": verification}
 
 
-def estimate_cost(mode, n_kq, assignment, relevance=None):
-    """Estimate the subagent count and the total tool calls. Returns (agents, calls, breakdown)."""
+def estimate_cost(mode, n_kq, assignment, relevance=None, question_type=None):
+    """Estimate the subagent count and the total tool calls. Returns (agents, calls, breakdown).
+
+    question_type adds the rival analyst's cost (one agent, TOOL_CALLS_PER_RIVAL calls)
+    whenever it is anything but "descriptive", including when it is None.
+    """
     relevance = relevance or {}
     collect_agents = 0
     collect_calls = 0
@@ -139,14 +157,37 @@ def estimate_cost(mode, n_kq, assignment, relevance=None):
     verify_calls = verify_agents * TOOL_CALLS_PER_VERIFY_BATCH
     audit_agents = AUDITOR_AGENTS.get(mode, 0)
     audit_calls = audit_agents * TOOL_CALLS_PER_AUDITOR
+    rival_agents = 0 if question_type == "descriptive" else 1
+    rival_calls = 0 if question_type == "descriptive" else TOOL_CALLS_PER_RIVAL
 
-    agents = collect_agents + verify_agents + audit_agents
-    calls = collect_calls + verify_calls + audit_calls
+    agents = collect_agents + verify_agents + audit_agents + rival_agents
+    calls = collect_calls + verify_calls + audit_calls + rival_calls
     return agents, calls, {
         "collection_agents": collect_agents, "collection_calls": collect_calls,
         "verification_agents": verify_agents, "verification_calls": verify_calls,
         "audit_agents": audit_agents, "audit_calls": audit_calls,
+        "rival_agents": rival_agents, "rival_calls": rival_calls,
     }
+
+
+def qa_presupposition_lines(body):
+    """The sub-bullets under 'Presuppositions:' in a Question analysis section's body."""
+    lines = []
+    in_presup = False
+    for raw in body.splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        indented = raw[:1].isspace()
+        if not indented and PRESUP_HEAD_RE.match(stripped):
+            in_presup = True
+            continue
+        if not indented and stripped.startswith("-"):
+            in_presup = False
+            continue
+        if in_presup and stripped.startswith("-"):
+            lines.append(stripped[1:].strip())
+    return lines
 
 
 def _configure_stdout():
@@ -220,6 +261,39 @@ def lint(text, mode):
             add("FAIL", f"P-SEC-{code.upper()}", f"the required section \"{keywords[0]}\" is missing")
         elif not body.strip():
             add("FAIL", f"P-EMPTY-{code.upper()}", f"the section \"{heading}\" is empty")
+
+    # The Question analysis section's five fields, its question type, its presuppositions
+    # and its Decision line. Presence and emptiness are already checked above; these rules
+    # run only where the section exists and carries text.
+    _, qa_body = find_section(sections, REQUIRED_SECTIONS["question_analysis"])
+    question_type = None
+    if qa_body and qa_body.strip():
+        missing_fields = [f for f in labels.QA_FIELDS if f.lower() not in qa_body.lower()]
+        if missing_fields:
+            add("FAIL", "P-QA-FIELDS",
+                f"the Question analysis section is missing: {', '.join(missing_fields)}")
+        question_type = labels.question_type_of(qa_body)
+        if question_type is None:
+            add("FAIL", "P-QA-TYPE",
+                "the Question analysis section names no valid question type "
+                f"(one of {', '.join(labels.QUESTION_TYPES)})")
+        for presup in qa_presupposition_lines(qa_body):
+            if PRESUP_NONE_RE.match(presup):
+                continue
+            has_verify = bool(PRESUP_VERIFY_RE.search(presup))
+            has_accept = bool(PRESUP_ACCEPT_RE.search(presup))
+            if not has_verify and not has_accept:
+                add("WARN", "P-QA-PRESUP",
+                    f"a presupposition names neither verify nor accept: {presup[:60]}")
+            elif has_verify and not PRESUP_KQ_REF_RE.search(presup):
+                add("WARN", "P-QA-PRESUP",
+                    f"a presupposition marked verify names no KQ: {presup[:60]}")
+        decision_line = next((m for m in (DECISION_LINE_RE.match(ln.strip())
+                                          for ln in qa_body.splitlines()) if m), None)
+        if decision_line and len(decision_line.group(1).strip()) < MIN_DECISION_CHARS:
+            add("WARN", "P-QA-DECISION",
+                "the Decision line is too short to name who does what differently and by "
+                f"when ({len(decision_line.group(1).strip())} characters after the colon)")
 
     # The key questions, taken from that section's body alone: another section quoting a
     # KQ line would otherwise read as a duplicate.
@@ -297,12 +371,13 @@ def lint(text, mode):
     # The agent and tool-call budget. A plan above it is cut back (fewer KQs, or a
     # decision KQ moved to background).
     if mode in MAX_AGENTS:
-        agents, calls, cost = estimate_cost(mode, len(kqs), assignment, relevance)
+        agents, calls, cost = estimate_cost(mode, len(kqs), assignment, relevance, question_type)
         max_agents, max_calls = MAX_AGENTS[mode], MAX_TOOL_CALLS[mode]
         detail = (f"an estimated {agents} agents and {calls} calls "
                   f"(collection {cost['collection_agents']} agents {cost['collection_calls']} calls + "
                   f"verification {cost['verification_agents']} agents {cost['verification_calls']} calls + "
-                  f"audit {cost['audit_agents']} agents {cost['audit_calls']} calls) "
+                  f"audit {cost['audit_agents']} agents {cost['audit_calls']} calls + "
+                  f"rival {cost['rival_agents']} agents {cost['rival_calls']} calls) "
                   f"against a cap of {max_agents} agents and {max_calls} calls")
         if agents > max_agents or calls > max_calls:
             add("FAIL", "P-COST",

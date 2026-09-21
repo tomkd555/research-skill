@@ -36,6 +36,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import labels
+# evidence_auditor imports neither labels nor merge_fragments, so this direction is safe;
+# the value enums live there once, and validate_fragment.py already imports both modules.
+from evidence_auditor import (PUBLISHED_RE, URL_RE, VALID_CLAIM_TYPES, VALID_CORROBORATION,
+                              VALID_GRADES, enum_ok)
 
 SCHEMA_VERSION = "research-evidence-1.3"
 DEFAULT_DELIVERABLE_LANGUAGE = "en"
@@ -47,6 +51,12 @@ FRAGMENT_RE = re.compile(r"^kq(\d+)_(collector|scholar)\.json$", re.IGNORECASE)
 REQUIRED_EVIDENCE = ("kq_ids", "claim", "claim_type", "verbatim_quote",
                      "source", "accessed", "is_key_figure", "corroboration")
 REQUIRED_SOURCE = ("publisher", "title", "url", "published", "grade")
+# A verbatim_quote is one contiguous passage; a joined quote can never match the page.
+ELLIPSIS_MARKERS = ("...", "…")
+# gaps: the aliases an agent writes for evidence_log.schema.json's tried_queries / recommended.
+GAP_TRIED_ALIASES = ("queries_tried", "queries")
+GAP_RECOMMENDED_ALIASES = ("would_settle_it", "what_would_settle_it", "further_research",
+                           "suggested")
 
 
 def _configure_stdout():
@@ -104,7 +114,9 @@ def parse_brief_kqs(brief_path):
 
 
 def validate_evidence(e):
-    """Check one evidence unit's required fields. Returns why it fails, or None."""
+    """Check one evidence unit's required fields and their values. Returns why it fails,
+    or None. A wrong-typed value (a dict, say, where the schema asks for a string) is a
+    value failure the same as a wrong string, never an exception mid-check."""
     if not isinstance(e, dict):
         return "the evidence is not an object"
     missing = [k for k in REQUIRED_EVIDENCE if k not in e or e[k] in (None, "", [])]
@@ -114,12 +126,80 @@ def validate_evidence(e):
     src = e.get("source")
     if not isinstance(src, dict):
         missing.append("source")
+        src = {}
     else:
         missing += [f"source.{k}" for k in REQUIRED_SOURCE
                     if k not in src or src[k] in (None, "")]
     if missing:
         return "required fields are missing: " + ", ".join(sorted(set(missing)))
+
+    bad = []
+    claim_type = e.get("claim_type")
+    if not enum_ok(claim_type, VALID_CLAIM_TYPES):
+        bad.append(f"claim_type holds {claim_type!r}; the enum is "
+                   f"{sorted(VALID_CLAIM_TYPES)}")
+    corroboration = e.get("corroboration")
+    if not enum_ok(corroboration, VALID_CORROBORATION):
+        bad.append(f"corroboration holds {corroboration!r}; the enum is "
+                   f"{sorted(VALID_CORROBORATION)}")
+    grade = src.get("grade")
+    if not enum_ok(grade, VALID_GRADES):
+        bad.append(f"source.grade holds {grade!r}; the enum is {sorted(VALID_GRADES)}")
+    url = src.get("url")
+    if not isinstance(url, str) or not URL_RE.match(url):
+        bad.append(f"source.url holds {url!r}; it must match {URL_RE.pattern!r}")
+    published = src.get("published")
+    if not isinstance(published, str) or not PUBLISHED_RE.match(published):
+        bad.append(f"source.published holds {published!r}; it must match "
+                   f"{PUBLISHED_RE.pattern!r}")
+    is_key_figure = e.get("is_key_figure")
+    if not isinstance(is_key_figure, bool):
+        bad.append(f"is_key_figure holds {is_key_figure!r}; it must be a bool")
+    quote = e.get("verbatim_quote")
+    if not isinstance(quote, str) or any(m in quote for m in ELLIPSIS_MARKERS):
+        bad.append(f"verbatim_quote holds {quote!r}; one contiguous passage is required, "
+                   "with no \"...\" and no …")
+    if bad:
+        return "invalid field values: " + "; ".join(bad)
     return None
+
+
+def normalize_gap(g):
+    """One gap taken in as {claim, tried_queries, recommended} (evidence_log.schema.json).
+
+    Returns (gap, notes): notes lists what intake changed, empty when the gap already
+    held that shape. A plain string becomes the claim; the aliases GAP_TRIED_ALIASES and
+    GAP_RECOMMENDED_ALIASES map onto the schema's field names; a string tried_queries
+    becomes a one-element list.
+    """
+    if isinstance(g, str):
+        return {"claim": g, "tried_queries": [], "recommended": ""}, \
+            ["a plain string was taken in as claim"]
+    if not isinstance(g, dict):
+        return {"claim": str(g), "tried_queries": [], "recommended": ""}, \
+            ["a non-object gap was taken in as claim"]
+
+    out = dict(g)
+    notes = []
+    if "tried_queries" not in out:
+        for alias in GAP_TRIED_ALIASES:
+            if alias in out:
+                out["tried_queries"] = out.pop(alias)
+                notes.append(f"{alias} -> tried_queries")
+                break
+    if "recommended" not in out:
+        for alias in GAP_RECOMMENDED_ALIASES:
+            if alias in out:
+                out["recommended"] = out.pop(alias)
+                notes.append(f"{alias} -> recommended")
+                break
+    if isinstance(out.get("tried_queries"), str):
+        out["tried_queries"] = [out["tried_queries"]]
+        notes.append("tried_queries coerced from a string to a one-element list")
+    out.setdefault("claim", "")
+    out.setdefault("tried_queries", [])
+    out.setdefault("recommended", "")
+    return out, notes
 
 
 def merge(fragments, topic, as_of, mode, key_questions,
@@ -188,7 +268,7 @@ def merge(fragments, topic, as_of, mode, key_questions,
                 d["role"] = role
             disconfirmation.append(d)
         for g in frag.get("gaps") or []:
-            gaps.append(g)
+            gaps.append(normalize_gap(g)[0])
         for a in frag.get("alternatives") or []:
             alternatives.append(a)
 
@@ -198,6 +278,27 @@ def merge(fragments, topic, as_of, mode, key_questions,
         per_fragment.append({"file": os.path.basename(path), "kq_id": frag_kq,
                              "role": role, "evidence_taken": taken,
                              "floor_status": fs})
+
+    # A collector and a scholar each number their own provisional clusters within their
+    # own fragment (KQ1-1, KQ1-2, ...), so the same id from the two roles on one key
+    # question names two unrelated origins. The collector's id stays; a colliding
+    # scholar id is renamed so the ledger does not fuse them into one origin cluster.
+    origin_cluster_renames = {}
+    collector_clusters = set()
+    for e in evidence:
+        if (e.get("lineage") or {}).get("collected_by") == "collector":
+            oc = (e.get("source") or {}).get("origin_cluster")
+            if oc:
+                collector_clusters.add(oc)
+    for e in evidence:
+        if (e.get("lineage") or {}).get("collected_by") != "scholar":
+            continue
+        src = e.get("source") or {}
+        oc = src.get("origin_cluster")
+        if oc and oc in collector_clusters:
+            renamed = f"{oc}-scholar"
+            src["origin_cluster"] = renamed
+            origin_cluster_renames[oc] = renamed
 
     # Map the reference fields (corroborating_ids / superseded_by) onto the real IDs.
     for e in evidence:
@@ -236,6 +337,7 @@ def merge(fragments, topic, as_of, mode, key_questions,
     }
     if alternatives:
         log["alternatives"] = alternatives
+    id_map["origin_cluster_renames"] = origin_cluster_renames
     return log, id_map, unmerged, per_fragment
 
 

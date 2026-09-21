@@ -96,17 +96,29 @@ def apply(log, verdict_rows, expected_ids):
             changes.append({"id": eid, "field": "verification.status",
                             "before": prev, "after": status, "file": src_file})
 
-        corr = (v.get("corroboration") or {}).get("status") if isinstance(
-            v.get("corroboration"), dict) else v.get("corroboration")
+        corroboration_field = v.get("corroboration")
+        corr_source = (corroboration_field.get("corroborating_source")
+                      if isinstance(corroboration_field, dict) else None)
+        corr = (corroboration_field.get("status") if isinstance(corroboration_field, dict)
+               else corroboration_field)
         if corr:
             if corr not in VALID_CORROBORATION:
                 errors.append({"file": src_file, "id": eid,
                                "reason": f"invalid corroboration: {corr!r}"})
-            elif target.get("corroboration") != corr:
-                changes.append({"id": eid, "field": "corroboration",
-                                "before": target.get("corroboration"), "after": corr,
-                                "file": src_file})
-                target["corroboration"] = corr
+            else:
+                if target.get("corroboration") != corr:
+                    changes.append({"id": eid, "field": "corroboration",
+                                    "before": target.get("corroboration"), "after": corr,
+                                    "file": src_file})
+                    target["corroboration"] = corr
+                # The verifier's own find: the object the auditor checks against the
+                # unit's own domain when the merge attached no corroborating_ids entry.
+                if isinstance(corr_source, dict) and corr_source:
+                    if ver.get("corroborating_source") != corr_source:
+                        changes.append({"id": eid, "field": "verification.corroborating_source",
+                                        "before": ver.get("corroborating_source"),
+                                        "after": corr_source, "file": src_file})
+                    ver["corroborating_source"] = corr_source
         applied.append(eid)
 
     missing = []

@@ -14,8 +14,9 @@ request, which the ledger records as `deliverable_language`.
 
 ## 1. The structure of an evidence unit
 
-Every fact is recorded as an evidence unit with the following structure (the machine-readable
-definition is `assets/evidence_log.schema.json`).
+Every fact is recorded as an evidence unit (the machine-readable definition is
+`assets/evidence_log.schema.json`; the field-by-field table a collector works from is in its own
+definition, `agents/research-collector.md`). The fields that carry the interpretation accuracy:
 
 | Field | Rule |
 |---|---|
@@ -94,9 +95,10 @@ or the end (source [1]). In DEEP research, where the ledger grows large, observe
 | Known shape | Procedure |
 |---|---|
 | Sycophancy (source [2]) | Register the user's initial hypothesis as competing hypothesis H1 and do not privilege it. Search for supporting and disconfirming evidence with equal effort. Never count the user's approval as evidence |
-| Accepting unverified presuppositions (source [3]) | Presuppositions embedded in the request (such as "now that X has become the mainstream choice, ...") are not treated as fact before verification. Turn the presupposition itself into a KQ or a verification target |
-| Order effects (source [4]) | When comparing several options or hypotheses, swap the order and evaluate twice, and check that the conclusion does not move with the order |
-| Anchoring (source [8]) | Do not make the first figure you find the reference point. For key figures, line up the values from independent sources before deciding a representative value and a range |
+| Accepting unverified presuppositions (source [3]) | Presuppositions embedded in the request (such as "now that X has become the mainstream choice, ...") are listed in research_brief's Question analysis block, each marked `verify → KQn` or `accept — reason`, before any search runs. A `verify` presupposition is a key question or a verification target; none is treated as fact before verification |
+| Order effects (source [4]) | When comparing several options or hypotheses, read the hypothesis matrix once by row and once by column before naming the survivor, and check that the conclusion does not move with the order |
+| A confidently wrong frame | The rival analyst (`research-rival`) answers the decision from the evidence slices alone, without the brief or the draft; the report reconciles with it in the Analysis section and caps its confidence where they differ (pipeline.md Step 4) |
+| Anchoring (source [8]) | Do not make the first figure you find the reference point. For key figures, line up the values from independent sources before deciding a representative value and a range. For a forecast, the outside view's base rate is the reference point |
 
 ## 5. Rules of expression (how to write the report)
 
@@ -140,7 +142,8 @@ This section covers what to do when an evidence fragment JSON fails the schema o
 deterministic check (`scripts/evidence_auditor.py` and the like). It addresses the case where a
 response arrived but failed those checks. The rule for
 relaunching a subagent that failed to produce a structured response at all (a response that is
-not valid JSON, say) is a different rule, whose source of record is `agent_roles.md` §5. The two
+not valid JSON, say) is a different rule, whose source of record is `pipeline.md`'s error-handling
+section. The two
 kinds of failure differ, so the retry counts differ too.
 
 1. Re-request from the same agent, attaching a verbatim list of the failing fields and the
@@ -159,9 +162,11 @@ The final message at Step 6 (delivery) keeps this order.
 
 1. Summary (with a confidence label, in the English wording of §5 and with its band)
 2. Key findings (each line carrying an evidence ID `[E#]`)
-3. Disconfirming evidence and limitations
-4. Audit verdict (the deterministic checks' FAIL/WARN counts plus the agent audit's verdict)
-5. Absolute paths of the deliverables
+3. The rival reading in one line: the rival's answer, whether the report agrees or differs, and
+   what would settle it
+4. Disconfirming evidence and limitations
+5. Audit verdict (the deterministic checks' FAIL/WARN counts plus the agent audit's verdict)
+6. Absolute paths of the deliverables
 
 Never add to the final message a claim or a number that is absent from report.md.
 What reaches the conversation is a transcription of report.md, not new writing. Keep the message

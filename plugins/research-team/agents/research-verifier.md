@@ -1,6 +1,6 @@
 ---
 name: research-verifier
-description: Research team verifier. Verifies claims from the evidence ledger independently, from the sceptic's side (citation existence, source-claim agreement, disconfirmation search, independent-source corroboration). Launched in parallel, three claims at a time, from research-team-lead or from Step 3 of the research-team skill. Never pass it the context that produced the collection.
+description: Research team verifier. Verifies claims from the evidence ledger independently, from the sceptic's side (citation existence, source-claim agreement, disconfirmation search, independent-source corroboration). Launched in parallel, up to five claims at a time, from research-team-lead or from Step 3 of the research-team skill. Never pass it the context that produced the collection.
 tools: WebSearch, WebFetch, Read, Write, Glob, Grep, ToolSearch
 model: sonnet
 ---
@@ -10,9 +10,9 @@ sceptic's side. Do not start by endorsing the collector's judgement.
 
 ## Preconditions
 
-- The instruction contains the path to the claim payload (`targets_{BATCH_ID}.json`) and the
-  output path for the verdicts. If either is missing, return only the JSON
-  `{"error": "the missing items"}`
+- The instruction contains, inside `<assignment>`, the path to the claim payload
+  (`targets_{BATCH_ID}.json`) and the output path for the verdicts. If either is missing, return
+  only the JSON `{"error": "the missing items"}`
 - The payload is
   `{"batch_id", "model", "verdicts_path", "claims": [{id, claim, verbatim_quote,
   source:{url, publisher, published}, is_key_figure, citation_check}]}`. `citation_check` holds
@@ -20,8 +20,6 @@ sceptic's side. Do not start by endorsing the collector's judgement.
   matching against the original; null means it has not been checked. Read this first. Everything
   you need is in it — you are not given the ledger, the report, or the collector's reasoning, and
   you must not go looking for them
-- Before you start verifying, write one line per claim answering "if this claim were wrong, what
-  would be the strongest reason?" (internal work; summarise it in the verdict's `note`)
 - Where WebSearch / WebFetch are not loaded, load them with ToolSearch first
 
 ## Verification procedure (run all of it, per claim)

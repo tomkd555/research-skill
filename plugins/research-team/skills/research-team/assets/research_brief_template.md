@@ -16,6 +16,18 @@
 - Intended readers: {who reads it}
 - Defaults recorded: {what the user left to you, and the default you took}
 
+## Question analysis
+
+<!-- Written before the key questions, because they derive from this block. -->
+
+- Decision: {who does what differently depending on the answer, and by when}
+- Question type: {descriptive | diagnostic | evaluative | prescriptive | predictive}
+- Presuppositions:
+  - {what the request takes as settled} — verify → KQ{n}
+  - {what the request takes as settled} — accept — {why}
+- Useless answer: {the answer that would be true, sourced, and of no use to the decision}
+- Pivotal observation: {the one fact that, if it came out the other way, would change the answer}
+
 ## Key questions
 
 <!-- Two to seven, phrased as questions, each at a grain that can be researched and verified
@@ -55,14 +67,14 @@
 - Publishers expected: {the statistics agencies, regulators, journals or industry bodies you expect to cite}
 - Role assignment: {which collection role handles each KQ, as in KQ1=collector,
   KQ2=scholar/sonnet, KQ3=collector+scholar/opus. Name the model for each scholar
-  (the escalation conditions are in agent_roles.md §2).}
+  (the escalation conditions are in pipeline.md, the research-scholar launch block).}
 
 ## Stopping rules
 
 - The collection floors are met (per mode and decision relevance; collection_standards.md §1) and two consecutive queries add nothing new
 - Early stop: three or more independent sources, no new evidence unit in the last two queries, and the KQ's conclusion at "likely" or above — all three together stop the collection even short of the DEEP floors (record it in floor_status.early_stop)
 - Ceiling: {a cap on total search queries, turns, or time}
-- Cutbacks recorded: {what you did when the planning budget check went over — fewer KQs, a decision KQ moved to background. Write "not applicable" if none.}
+- Cutbacks recorded: {what you did when the planning budget check went over — fewer KQs, a decision KQ moved to background. Write "none" where the plan cleared the budget as written.}
 
 ## Out of scope
 

@@ -31,6 +31,7 @@ import argparse
 import concurrent.futures
 import contextlib
 import difflib
+import hashlib
 import html.parser
 import json
 import os
@@ -139,6 +140,11 @@ def normalize_text(s):
     """Normalise to NFKC and collapse whitespace, ahead of matching a quote."""
     s = unicodedata.normalize("NFKC", s or "")
     return re.sub(r"\s+", " ", s).strip()
+
+
+def cache_name(url):
+    """The page-cache file name for a URL (also used by fetch_page.py, which imports this)."""
+    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:16] + ".txt"
 
 
 class _TextExtractor(html.parser.HTMLParser):
@@ -315,21 +321,38 @@ def check_doi(doi, timeout, throttle=None):
 
 
 def check_arxiv(arxiv_id, timeout, throttle=None):
-    """Resolve an arXiv ID through export.arxiv.org.
+    """Resolve an arXiv ID through export.arxiv.org, falling back to the abstract page.
 
-    Returns (status, detail); status is resolved, not_found or error.
+    Returns (status, detail); status is resolved, not_found or error. export.arxiv.org's
+    API answered every request tried in this environment with HTTP 406, so an API
+    failure falls back to a HEAD, then a GET, on https://arxiv.org/abs/{id}: 200 counts
+    as resolved, 404 as not_found. The API stays the first attempt.
     """
     api = "http://export.arxiv.org/api/query?id_list=" + urllib.parse.quote(arxiv_id, safe="")
-    status, body, _, err = http_request(api, timeout, method="GET", throttle=throttle)
-    if status != 200 or body is None:
-        return "error", f"the arXiv API query errored: {err or status}"
-    text = body.decode("utf-8", errors="replace")
-    m = re.search(r"<opensearch:totalResults[^>]*>(\d+)</opensearch:totalResults>", text)
-    if m and int(m.group(1)) == 0:
-        return "not_found", "arXiv holds no such ID (possible fabrication)"
-    if "<entry>" in text:
-        return "resolved", "resolved through arXiv"
-    return "error", "the arXiv response cannot be parsed"
+    api_status, body, _, api_err = http_request(api, timeout, method="GET", throttle=throttle)
+    if api_status == 200 and body is not None:
+        text = body.decode("utf-8", errors="replace")
+        m = re.search(r"<opensearch:totalResults[^>]*>(\d+)</opensearch:totalResults>", text)
+        if m and int(m.group(1)) == 0:
+            return "not_found", "arXiv holds no such ID (possible fabrication)"
+        if "<entry>" in text:
+            return "resolved", "resolved through the arXiv API"
+
+    api_detail = f"the arXiv API query failed: {api_err or api_status}"
+    abs_url = "https://arxiv.org/abs/" + urllib.parse.quote(arxiv_id, safe="")
+    h_status, _, _, h_err = http_request(abs_url, timeout, method="HEAD", throttle=throttle)
+    if h_status == 200:
+        return "resolved", f"{api_detail}; resolved through the abstract page (HEAD {h_status})"
+    if h_status == 404:
+        return "not_found", f"{api_detail}; the abstract page is 404 (possible fabrication)"
+
+    g_status, _, _, g_err = http_request(abs_url, timeout, method="GET", throttle=throttle)
+    if g_status == 200:
+        return "resolved", (f"{api_detail}; resolved through the abstract page "
+                            f"(GET {g_status}, HEAD failed: {h_err})")
+    if g_status == 404:
+        return "not_found", f"{api_detail}; the abstract page is 404 (possible fabrication)"
+    return "error", f"{api_detail}; the abstract page also failed: {g_err or g_status}"
 
 
 def containment(norm_quote, norm_body):
@@ -381,7 +404,7 @@ def check_quote_match(quote, body_text, truncated=False):
                          f"{QUOTE_MATCH_RATIO}")
 
 
-def verify_one(e, timeout, offline, throttle=None):
+def verify_one(e, timeout, offline, throttle=None, pages_dir=None):
     eid = e.get("id", "?")
     src = e.get("source") or {}
     quote = e.get("verbatim_quote", "")
@@ -390,7 +413,12 @@ def verify_one(e, timeout, offline, throttle=None):
     arxiv_id = src.get("arxiv_id")
     result = {"id": eid, "url": url, "doi": doi, "arxiv_id": arxiv_id}
 
-    if offline:
+    # A local source (fetch_page.py's ingest_one, url starting with file://, or a source
+    # that carries local_path) needs no network for its own check, so it runs even under
+    # --offline; only its doi/arxiv fields, if any, still honour that flag below.
+    is_local = url.startswith("file://") or bool(src.get("local_path"))
+
+    if offline and not is_local:
         result.update({
             "url_status": "skipped", "archive": None,
             "doi_status": "skipped" if doi else "n/a",
@@ -404,7 +432,16 @@ def verify_one(e, timeout, offline, throttle=None):
     notes = []
     severity = "PASS"
 
-    if url:
+    if is_local:
+        cache_path = os.path.join(pages_dir or "", cache_name(url))
+        if os.path.exists(cache_path):
+            with open(cache_path, encoding="utf-8") as f:
+                body_text = f.read()
+            url_status, truncated, detail = "local", False, f"read from the page cache: {cache_path}"
+        else:
+            url_status, body_text, truncated, detail = "unreachable", None, False, \
+                f"no cached file for this local source: {cache_path}"
+    elif url:
         need_body = bool(quote)
         url_status, body_text, truncated, detail = check_url_reachability(
             url, timeout, need_body, throttle)
@@ -415,11 +452,16 @@ def verify_one(e, timeout, offline, throttle=None):
         severity = bump(severity, "WARN")
 
     archive = None
-    if url_status == "unreachable":
+    if url_status == "unreachable" and not is_local:
         archive, wb_detail = check_wayback(url, timeout, throttle)
         notes.append(f"wayback: {wb_detail}")
 
-    if doi:
+    # Reaching this line with offline True means is_local was True (the early return above
+    # covers every other case), so this guard also keeps a local source's own doi/arxiv
+    # fields from reaching the network under --offline.
+    if doi and offline:
+        doi_status, doi_detail = "skipped", "not verified: offline mode"
+    elif doi:
         doi_status, doi_detail = check_doi(doi, timeout, throttle)
     else:
         doi_status, doi_detail = "n/a", "no source.doi"
@@ -429,7 +471,9 @@ def verify_one(e, timeout, offline, throttle=None):
     elif doi_status == "error":
         severity = bump(severity, "WARN")
 
-    if arxiv_id:
+    if arxiv_id and offline:
+        arxiv_status, arxiv_detail = "skipped", "not verified: offline mode"
+    elif arxiv_id:
         arxiv_status, arxiv_detail = check_arxiv(arxiv_id, timeout, throttle)
     else:
         arxiv_status, arxiv_detail = "n/a", "no source.arxiv_id"
@@ -445,6 +489,16 @@ def verify_one(e, timeout, offline, throttle=None):
         quote_match, quote_detail = "unfetchable", "no url, so the body cannot be fetched"
     else:
         quote_match, quote_detail = check_quote_match(quote, body_text, truncated)
+        if quote_match == "not_found" and not is_local and pages_dir:
+            cache_path = os.path.join(pages_dir, cache_name(url))
+            if os.path.exists(cache_path):
+                with open(cache_path, encoding="utf-8") as f:
+                    cached_text = f.read()
+                cached_match, cached_detail = check_quote_match(quote, cached_text)
+                if cached_match == "found":
+                    quote_match = "found_cached"
+                    quote_detail = ("the live page text differs from fetch_page.py's "
+                                    "cached extraction; matched there instead: " + cached_detail)
     notes.append(f"quote: {quote_detail}")
     if quote_match == "not_found":
         severity = "CRITICAL"
@@ -460,21 +514,53 @@ def verify_one(e, timeout, offline, throttle=None):
     return result
 
 
-def run(log, only_ids, timeout, offline, workers=DEFAULT_WORKERS):
+def needs_retry(r):
+    """Is this result a WARN whose cause might be transient (worth one re-request)?"""
+    return (r["severity"] == "WARN"
+            and (r.get("url_status") in ("unreachable", "error")
+                 or r.get("doi_status") == "error"
+                 or r.get("arxiv_status") == "error"
+                 or r.get("quote_match") == "unfetchable"))
+
+
+def retry_warn_results(log, results, timeout, throttle, pages_dir=None):
+    """Re-request once every WARN result that might have been transient network trouble,
+    and replace the record only when the retry does better (never worse).
+
+    A local (file://) source is skipped: no network request changes a missing cache file.
+    """
+    evidence_by_id = {e.get("id"): e for e in log.get("evidence", [])}
+    out = []
+    for r in results:
+        e = evidence_by_id.get(r["id"])
+        if not needs_retry(r) or e is None or (r.get("url") or "").startswith("file://"):
+            out.append(r)
+            continue
+        retry = verify_one(e, timeout, False, throttle, pages_dir=pages_dir)
+        out.append(retry if SEVERITY_ORDER[retry["severity"]] < SEVERITY_ORDER[r["severity"]] else r)
+    return out
+
+
+def run(log, only_ids, timeout, offline, workers=DEFAULT_WORKERS, pages_dir=None, retry_warn=False):
     evidence = log.get("evidence", [])
     if only_ids:
         wanted = set(only_ids)
         evidence = [e for e in evidence if e.get("id") in wanted]
 
+    throttle = None
     if offline or workers <= 1 or len(evidence) <= 1:
-        results = [verify_one(e, timeout, offline) for e in evidence]
+        results = [verify_one(e, timeout, offline, pages_dir=pages_dir) for e in evidence]
     else:
         throttle = HostThrottle()
         n = min(workers, MAX_WORKERS, len(evidence))
         with concurrent.futures.ThreadPoolExecutor(max_workers=n) as ex:
             # map returns results in input order, so results stays in evidence ID order
             results = list(ex.map(
-                lambda e: verify_one(e, timeout, offline, throttle), evidence))
+                lambda e: verify_one(e, timeout, offline, throttle, pages_dir=pages_dir), evidence))
+
+    if retry_warn and not offline:
+        results = retry_warn_results(log, results, timeout, throttle or HostThrottle(), pages_dir)
+
     critical = [r for r in results if r["severity"] == "CRITICAL"]
     warn = [r for r in results if r["severity"] == "WARN"]
     verdict = "CRITICAL" if critical else ("WARN" if warn else "PASS")
@@ -510,6 +596,13 @@ def main():
     parser.add_argument("--output", default=None,
                         help="where to write citation_check.json "
                              "(default: the directory of the input file)")
+    parser.add_argument("--pages-dir", default=None,
+                        help="fetch_page.py's page cache, matched when the live page "
+                             "differs and read for file:// sources "
+                             "(default: pages/ beside the input file)")
+    parser.add_argument("--retry-warn", action="store_true",
+                        help="after the main pass, re-request once every WARN result "
+                             "that might have been transient network trouble")
     parser.add_argument("--sample", action="store_true",
                         help="print a sample evidence ledger and exit")
     args = parser.parse_args()
@@ -532,11 +625,13 @@ def main():
         return 2
 
     only_ids = [x.strip() for x in args.only.split(",") if x.strip()] if args.only else None
+    log_dir = os.path.dirname(os.path.abspath(args.log)) or "."
+    pages_dir = args.pages_dir or os.path.join(log_dir, "pages")
 
-    summary = run(log, only_ids, args.timeout, args.offline, args.workers)
+    summary = run(log, only_ids, args.timeout, args.offline, args.workers,
+                  pages_dir=pages_dir, retry_warn=args.retry_warn)
 
-    output_path = args.output or os.path.join(
-        os.path.dirname(os.path.abspath(args.log)) or ".", "citation_check.json")
+    output_path = args.output or os.path.join(log_dir, "citation_check.json")
     try:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, ensure_ascii=False, indent=2)

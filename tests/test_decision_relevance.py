@@ -78,7 +78,7 @@ EARLY_STOP_OK = {"independent_sources": 3, "consecutive_zero_new": 2,
 def test_background_kq_uses_standard_floor():
     """A background KQ in DEEP gets STANDARD's floors; a decision KQ gets DEEP's."""
     status = {"kq_id": "KQ1", "role": "collector", "met": True}
-    rows = rows_for("collector", queries=6, counter=1)   # clears STANDARD, not DEEP
+    rows = rows_for("collector", queries=6, counter=1)   # clears STANDARD; short of DEEP
 
     findings = ea.Auditor(floor_log("DEEP", rows, [status], relevance="background")).run()
     assert not query_findings(findings), \
@@ -312,7 +312,9 @@ def test_batch_cap_drops_lowest_priority():
     with tempfile.TemporaryDirectory() as d:
         summary = svt.select(log, None, d, wave=1, max_batches=2)
     assert len(summary["batches"]) == 2
-    assert summary["dropped"]["count"] == 6, summary["dropped"]
+    # 12 evidence units; the 2 surviving batches hold 3 (opus, the key figures) and 5
+    # (sonnet, the first 5 of 9 single-source claims) = 8, so 4 are cut.
+    assert summary["dropped"]["count"] == 4, summary["dropped"]
     kept = summary["expected_ids"].split(",")
     assert all(f"E{i}" in kept for i in (1, 2, 3)), "a key figure was dropped"
     assert summary["target_count"] == len(kept)

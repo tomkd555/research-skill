@@ -22,28 +22,39 @@ for its key question happen to be written.
 
 **Five stages.**
 
-1. **Planning** — decompose into 2-7 key questions, state two or more competing hypotheses, and
-   write down what would be observed if each hypothesis were false, before searching. A linter
-   checks the plan and estimates the session's WebSearch budget.
+1. **Question analysis and planning** — write down the decision the answer serves, the question
+   type (descriptive, diagnostic, evaluative, prescriptive, predictive), the presuppositions the
+   request rests on (each marked verify or accept), the useless answer, and the pivotal
+   observation; derive 2-7 key questions from the decision; state two or more competing
+   hypotheses and what would be observed if each were false, before searching. A linter checks the
+   plan and estimates the session's WebSearch budget.
 2. **Parallel collection** — one agent per key question, launched in a single message.
-   `research-collector` handles the general web (statistics, IR filings, reporting);
+   `research-collector` handles the general web (statistics, IR filings, reporting) and the local
+   materials the user supplied (PDF, DOCX, text, HTML), ingested into the same page cache;
    `research-scholar` handles academic literature through OpenAlex, arXiv, PubMed and Semantic
    Scholar. Each agent must clear a floor of queries, independent sources, and disconfirmation
    queries before it may return.
-3. **Independent verification** — `research-verifier` takes three claims at a time, in a context
-   that never saw the collection, and tries to break them. Four questions per claim: does the
-   citation exist, does the source actually say this, what does a disconfirming search return,
-   does a second independent source corroborate it.
-4. **Synthesis** — the writer works from per-key-question evidence extracts rather than one long
-   context, keeps fact and interpretation in separate layers, and confines every estimate to a
-   seven-level confidence vocabulary mapped onto probability bands.
-5. **Audit** — deterministic scripts check the ledger and the report, then `research-auditor`
-   grades both against a 15-item binary rubric and samples atomic facts. A failed critical item
-   sends specific key questions back to collection.
+3. **One wave of independent verification** — a deterministic citation check covers every
+   evidence unit (URL, DOI, arXiv ID, verbatim quote against the page or the cached local file);
+   `research-verifier` then takes up to five claims at a time — the conflicts, the citation
+   failures, the uncorroborated key figures and the claims that carry the conclusion — in a
+   context that never saw the collection, and tries to break them. In the same message,
+   `research-rival` answers the decision from the evidence slices alone, without the brief or the
+   draft, and the lead writes its first draft while they run.
+4. **Synthesis** — the Analysis section comes first: a hypothesis matrix, the mechanism, the
+   outside view, the source incentives, second-order effects and a premortem, as the question type
+   requires, plus the reconciliation with the rival's reading (a disagreement caps the confidence).
+   The writer works from per-key-question evidence extracts, keeps fact and interpretation in
+   separate layers, and confines every estimate to a seven-level confidence vocabulary mapped onto
+   probability bands.
+5. **One audit** — deterministic scripts check the ledger and the report, then `research-auditor`
+   grades both against a 16-item binary rubric and samples atomic facts. The lead applies the
+   findings once and delivers.
 
 **Three modes.** LIGHT answers a single factual question in the main session and writes no files.
 STANDARD runs the pipeline with reduced floors for one decision. DEEP runs the full pipeline with
-the audit gate. A study escalates from STANDARD to DEEP when sources conflict or the stakes turn
+the full floors on the decision-carrying key questions. Both wait on agents three times: the
+collection, the verification, and the audit. A study escalates from STANDARD to DEEP when sources conflict or the stakes turn
 out to be serious; it never de-escalates.
 
 **Collection floors**, per key question:
@@ -62,16 +73,21 @@ and one disconfirmation query. LIGHT sets no query floor.
 industry bodies, corporate IR and research firms; C is trade media, reporting and blogs. The
 pipeline rejects a key figure that rests only on grade-C sources.
 
-Five reference files under `plugins/research-team/skills/research-team/references/` state the
-design rules, and `methodology_sources.md` holds the academic grounding for them — every citation
+Four reference files under `plugins/research-team/skills/research-team/references/` state the
+design rules (the agent definitions carry the operative text, so no agent reads a reference file at run time), and `methodology_sources.md` holds the academic grounding for them — every citation
 with a verified DOI or arXiv ID.
 
 ## Install
 
 ```
 /plugin marketplace add tomkd555/research-skill
-/plugin install research-team@tomkd555
+/plugin install research-team@research-skill
 ```
+
+The marketplace is named `research-skill` since 1.1.0 (earlier releases declared `tomkd555`,
+which collided with the scan-research marketplace of the same name). An install made under the
+old name shows `research-team@tomkd555`; remove it with `/plugin uninstall research-team@tomkd555`
+and install again with the two lines above.
 
 Then ask for research in the ordinary way, in any language: "research X and give me sources",
 "look into X", "compare these and help me choose", "summarise it with evidence". The skill picks
@@ -108,7 +124,7 @@ A run writes into `research/{YYYYMMDD}-{topic-slug}/`:
 .claude-plugin/marketplace.json
 plugins/research-team/           everything an install copies
   .claude-plugin/plugin.json
-  agents/                        5 agent definitions
+  agents/                        6 agent definitions (lead, collector, scholar, verifier, rival, auditor)
   skills/research-team/          SKILL.md, references/, scripts/, assets/
   skills/literature-review/      paper_search.py and its own skill, bundled
 tests/                           repository only, never installed

@@ -108,6 +108,10 @@ Read the printed table. Columns are ID, year, citation count, grade, venue, titl
   language the report is written in.
 - **Citation counts come from OpenAlex.** A paper found only through arXiv or PubMed shows 0;
   that is a missing count, not an uncited paper. Never rank on it alone.
+- **The arXiv API may refuse the query.** `export.arxiv.org` has answered HTTP 406 from some
+  networks (observed 2026-09-21). The script prints the failure on stderr and the arXiv share of
+  the results is then empty; read stderr after every search, and where arXiv matters, add
+  `site:arxiv.org` WebSearch lookups for the preprints OpenAlex missed.
 - Do not select on recency alone. Weigh the venue and the citation count against the year.
   Establish the overview from surveys and meta-analyses first, then search the terms those
   surveys use to reach the primary work behind them (`--merge` folds a follow-up search into the

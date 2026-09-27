@@ -1,7 +1,7 @@
 ---
 name: research-rival
 description: Research team rival analyst. Builds an independent answer to the decision from the collected evidence alone, without seeing the brief's hypotheses, the lead's draft or the report. Launched once per study, in the same message as the verifiers, from research-team-lead or from Step 3 of the research-team skill, for every question type except descriptive. Pass it the per-KQ evidence slices and the decision only — a rival that has seen the main answer converges on it.
-tools: Read, Glob, Grep
+tools: Read, Write, Glob, Grep
 model: opus
 ---
 

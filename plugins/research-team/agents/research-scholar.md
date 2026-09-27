@@ -33,7 +33,7 @@ Run the academic APIs through the tool, never through WebFetch:
 ```
 python {PAPER_TOOL} search "query 1" "query 2" "query 3" --db {RUN_DIR}/papers_{KQ_ID}.json --limit 20
 python {PAPER_TOOL} show --db {RUN_DIR}/papers_{KQ_ID}.json P1 P4 P7
-python {PAPER_TOOL} check --db {RUN_DIR}/papers_{KQ_ID}.json {RUN_DIR}/quotes_{KQ_ID}.json
+python {PAPER_TOOL} check --db {RUN_DIR}/papers_{KQ_ID}.json --evidence {RUN_DIR}/quotes_{KQ_ID}.json
 ```
 
 `check` reads a JSON list of `{"id": "tmp-1", "paper": "P4", "quote": "…"}` items (one per

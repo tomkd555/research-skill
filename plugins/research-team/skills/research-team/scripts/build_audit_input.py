@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""build_audit_input.py — build what the audit agent is given, deterministically.
+"""build_audit_input.py: build what the audit agent is given, deterministically.
 
 Run it in research-team Step 5. The auditor (research-auditor) does not need the whole
 ledger. What the R1-R15 rubric asks of the ledger is the disconfirmation records, the
@@ -33,7 +33,7 @@ from report_auditor import (EVIDENCE_MARKER_RE, _configure_stdout, classify_line
                             section_matches)
 
 SAMPLE_N = {"DEEP": 10, "STANDARD": 5, "LIGHT": 0}
-# A reference from the source list or the search log is not a body citation — the same
+# A reference from the source list or the search log is exempt from body-citation checks, the same
 # rule report_auditor.py applies.
 EXEMPT_SECTIONS = labels.section_keywords("SEARCHLOG") + labels.section_keywords("SOURCES")
 

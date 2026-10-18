@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""render_scaffold.py — build the report skeleton and the per-KQ slices from the ledger.
+"""render_scaffold.py: build the report skeleton and the per-KQ slices from the ledger.
 
 Run it before the writing in research-team Step 4. Everything in the report that is a
-transcription of the ledger — the header metrics, the search-log table, the source list —
-is generated here, so the orchestrator never copies the same rows twice across the two
-writing passes. The analysis sections (the answer to the decision, the summary, the
+transcription of the ledger (the header metrics, the search-log table, the source list)
+is generated here, so the orchestrator never copies the same rows twice across the draft
+and its revision. The analysis sections (the answer to the decision, the summary, the
 per-KQ conclusions, disconfirmation, insight, limitations) get their headings only; the
 writer fills them. The `## Analysis` section gets its headings and placeholder tables the
 same way: the writer edits the placeholders in place, so those blocks carry no markers of
@@ -157,7 +157,7 @@ def confidence_ceiling(items):
     disconfirmation search, however good its sources look.
     """
     if not items:
-        return "—", "", T("ceil_none")
+        return "none", "", T("ceil_none")
     rank, reason_key = source_ceiling(items)
     reason = T(reason_key)
     confirmed = sum(1 for e in items
@@ -265,8 +265,8 @@ def gaps_table(log):
 
 
 def early_stop_table(log):
-    """The groups that stopped early. An early stop means "not looked into", not
-    "not there", so it is transcribed mechanically into the limitations section
+    """The groups that stopped early. An early stop means the rest was left unexamined,
+    so it is transcribed mechanically into the limitations section
     (collection_standards.md §1)."""
     rows = [T("tbl_earlystop"), "|---|---|---|---|---|---|"]
     for s in log.get("floor_status") or []:
@@ -550,7 +550,7 @@ def build_slice(log, kq):
         lines += [T("slice_disc_head"), ""]
         for d in disc:
             lines.append(T("slice_disc_item") % (d.get("hypothesis", ""), d.get("found", ""))
-                         + (f" — {d.get('impact')}" if d.get("impact") else ""))
+                         + (f"; effect: {d.get('impact')}" if d.get("impact") else ""))
         lines.append("")
     return "\n".join(lines)
 
@@ -558,7 +558,7 @@ def build_slice(log, kq):
 def build_cross_slice(log):
     """The slice for evidence belonging to no key question.
 
-    A section that cuts across the key questions — the summary, the insights — is
+    A section that cuts across the key questions (the summary, the insights) is
     short of material if the per-KQ slices are all the writer has.
     """
     kq_ids = {k.get("id") for k in log.get("key_questions", [])}

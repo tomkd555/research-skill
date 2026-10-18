@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""merge_fragments.py — merge the evidence fragments into the ledger (evidence_log.json).
+"""merge_fragments.py: merge the evidence fragments into the ledger (evidence_log.json).
 
 Run it at the intake of research-team Step 2. Everything the orchestrator used to do by
-hand — reading the fragments, merging them into the ledger, renumbering the provisional
-IDs into the real ones, attaching a kq_id to every search-log row — happens here. What is
+hand (reading the fragments, merging them into the ledger, renumbering the provisional
+IDs into the real ones, attaching a kq_id to every search-log row) happens here. What is
 left to a person is the one part that needs judgement: uniting the independence clusters
 across fragments.
 
@@ -118,7 +118,7 @@ def validate_evidence(e):
     or None. A wrong-typed value (a dict, say, where the schema asks for a string) is a
     value failure the same as a wrong string, never an exception mid-check."""
     if not isinstance(e, dict):
-        return "the evidence is not an object"
+        return "the evidence must be an object"
     missing = [k for k in REQUIRED_EVIDENCE if k not in e or e[k] in (None, "", [])]
     # False is a legitimate is_key_figure, so only its presence matters.
     if "is_key_figure" in e and "is_key_figure" in missing:
@@ -227,7 +227,7 @@ def merge(fragments, topic, as_of, mode, key_questions,
             unmerged["fragments"].append({"file": path, "reason": f"not valid JSON: {exc}"})
             continue
         if not isinstance(frag, dict):
-            unmerged["fragments"].append({"file": path, "reason": "the top level is not an object"})
+            unmerged["fragments"].append({"file": path, "reason": "the top level must be an object"})
             continue
 
         frag_kq = frag.get("kq_id") or kq_id
@@ -369,7 +369,7 @@ def main():
     key_questions = parse_brief_kqs(args.brief)
     if not key_questions:
         # With nothing readable in the brief, raise the KQs from the fragment file names
-        # (the text is the ID rather than empty).
+        # (the ID itself serves as the text).
         seen = []
         for _, kq_id, _ in fragments:
             if kq_id not in seen:

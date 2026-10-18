@@ -10,7 +10,7 @@ three things, all decidable from the URL alone.
 3. Rank by that grade and drop the second and later URL of the same cluster from the fetch
    list (§9)
 
-grade_hint is an expectation, not a verdict. The grade that goes on an evidence unit is the
+grade_hint is an expectation only. The grade that goes on an evidence unit is the
 collection agent's call after reading the page, following §4. This script only decides what
 to read first. The origin_cluster it assigns is provisional too; merging clusters across
 fragments belongs to the orchestrator.
@@ -114,7 +114,7 @@ def triage(urls, prefix):
             continue
         if r["cluster"] in seen_clusters:
             r["duplicate"] = True
-            r["reason"] += "; an earlier URL shares this cluster (not a second independent source)"
+            r["reason"] += "; an earlier URL shares this cluster (it adds no second independent source)"
         else:
             seen_clusters.add(r["cluster"])
 

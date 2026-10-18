@@ -7,7 +7,7 @@ evidence_log.json. This removes the path where the orchestrator copies verdicts 
 agent's message by hand, so a verdict cannot land on the wrong evidence unit.
 
 Where a verdict overwrites the corroboration already on the ledger, the change is recorded
-in changes rather than made silently. An ID the ledger does not hold, or an invalid status,
+in changes and never made silently. An ID the ledger does not hold, or an invalid status,
 is not applied and goes to errors; an evidence unit that was selected for verification but
 came back without a verdict goes to missing.
 
@@ -72,7 +72,7 @@ def apply(log, verdict_rows, expected_ids):
 
     for v, src_file in verdict_rows:
         if not isinstance(v, dict):
-            errors.append({"file": src_file, "id": None, "reason": "the verdict is not an object"})
+            errors.append({"file": src_file, "id": None, "reason": "the verdict must be a JSON object"})
             continue
         eid = v.get("id")
         target = by_id.get(eid)

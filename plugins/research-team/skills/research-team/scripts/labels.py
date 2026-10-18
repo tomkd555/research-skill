@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""labels.py — the section names, the confidence vocabulary and the prose patterns.
+"""labels.py: the section names, the confidence vocabulary and the prose patterns.
 
 Every string the check scripts match a deliverable against, and every string
-render_scaffold.py writes into one, lives here rather than in each script. One
+render_scaffold.py writes into one, lives here, in one place for every script. One
 definition serves both sides, so a heading the generator writes is by construction a
 heading the auditor accepts.
 
 The structure of a deliverable is English: its section names, its table headers, its
-confidence labels. The prose inside it — the claims, the conclusions, the report body —
+confidence labels. The prose inside it (the claims, the conclusions, the report body)
 is written in the language of the request, which the ledger records as
 `deliverable_language`. Keeping the structure fixed is what lets one set of patterns
 audit a report whatever language it was requested in.
@@ -51,7 +51,7 @@ def section_keywords(code):
 
 
 def section_of(code):
-    """One report section's canonical heading keyword — for generating text."""
+    """One report section's canonical heading keyword, for generating text."""
     return section_keywords(code)[0]
 
 
@@ -164,7 +164,7 @@ AMBIGUOUS_PATTERNS = (
     "かもしれない", "だろう", "と思われる", "ようだ", "おそらく",
 )
 
-# R14 qualifiers. A claim on thin evidence carrying one of these is not an assertion.
+# R14 qualifiers. A claim on thin evidence that carries one of these counts as hedged.
 HEDGE_PATTERNS = (
     "single_source", "single source", "reportedly", "is said to", "claims to",
     "self-reported", "provisional", "estimated", "according to", "appears to",
@@ -175,7 +175,7 @@ HEDGE_PATTERNS = (
 )
 
 # A probability band: 65-80% / 65% to 80%.
-PROB_BAND_RE = re.compile(r"\d+\s*[%]?\s*(?:[-–—]|to)\s*\d+\s*[%]")
+PROB_BAND_RE = re.compile(r"\d+\s*[%]?\s*(?:[-\u2013\u2014]|to)\s*\d+\s*[%]")
 
 # A point estimate, which the seven-label vocabulary plus a band replaces.
 POINT_ESTIMATE_RE = re.compile(
@@ -190,8 +190,8 @@ NUMERIC_ASSERTION_RE = re.compile(
     r"|[$€£¥]\s*\d",
     re.IGNORECASE)
 
-# Sentence separators. English needs the trailing space (so "3.14" is not a sentence
-# break); Japanese sentence punctuation (。！？) carries no space after it, so it splits
+# Sentence separators. English needs the trailing space (so "3.14" stays inside one
+# sentence); Japanese sentence punctuation (。！？) carries no space after it, so it splits
 # on its own.
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])(?=\s)|(?<=[。！？])")
 
@@ -220,28 +220,28 @@ TEXT = {
     "ceil_c_only": "grade-C sources only",
     "ceil_none": "no evidence",
     "ceil_capped": ", but with no confirmed evidence the ceiling drops to \"%s\"",
-    "ceil_line": "- Confidence ceiling (computed): %s — %s. The writer picks the final label.",
+    "ceil_line": "- Confidence ceiling (computed): %s; basis: %s. The writer picks the final label.",
 
     # tables
     "tbl_evidence": "| Evidence | Claim | Grade | Corroboration | Verification |",
-    "tbl_evidence_empty": "| — | (no live evidence attached to this KQ) | — | — | — |",
+    "tbl_evidence_empty": "| - | (no live evidence attached to this KQ) | - | - | - |",
     "tbl_disconf":
         "| Hypothesis | Observable if false | Queries run | Result | Effect on the hypothesis |",
-    "tbl_disconf_empty": "| — | — | — | (the ledger's disconfirmation is empty) | — |",
+    "tbl_disconf_empty": "| - | - | - | (the ledger's disconfirmation is empty) | - |",
     "tbl_coverage": "| KQ | Conclusion | Confidence | Key evidence | Verification |",
     "coverage_conclusion": "{one line}",
     "coverage_label": "{label}",
     "tbl_searchlog": "| Query | Tool | Adopted | Kind | KQ |",
     "tbl_gaps": "| Claim left uncorroborated | Queries tried | Further research suggested |",
-    "tbl_gaps_empty": "| (the ledger's gaps is empty) | — | — |",
+    "tbl_gaps_empty": "| (the ledger's gaps is empty) | - | - |",
     "tbl_earlystop":
         "| KQ | Role | Independent sources | Consecutive zero-new | Confidence | Note |",
-    "tbl_earlystop_empty": "| (no early stop) | — | — | — | — | — |",
+    "tbl_earlystop_empty": "| (no early stop) | - | - | - | - | - |",
     "queries_unit": "queries",
     "grade_prefix": "grade ",
 
     # report header and sections
-    "report_title": "# %s — research report",
+    "report_title": "# %s: research report",
     "hdr_meta": "- as_of: %s / mode: %s",
     "hdr_counts": "- Independent sources: %s / evidence units: %s",
     "hdr_excluded": " (excluding %s refuted or superseded)",
@@ -266,7 +266,7 @@ TEXT = {
          "     evidence is consistent with one hypothesis and inconsistent with another. -->"),
     "blk_ach_lines":
         ("- Non-diagnostic evidence: {E#, E#}\n"
-         "- Hypothesis eliminated: {H#} — by {E#}\n"
+         "- Hypothesis eliminated: {H#}, by {E#}\n"
          "- Surviving hypothesis: {H#}, on {n} diagnostic units"),
     "blk_mechanism":
         ("- Chain: {A}[E#] → {B}[E#] → {C}[E#]\n"
@@ -279,7 +279,7 @@ TEXT = {
          "- Result after adjustment: {the forecast, with its date and indicator}"),
     "tbl_incentive":
         "| Evidence | Publisher | Who benefits if this figure is believed | self_reported | Corroborated by |",
-    "tbl_incentive_empty": "| — | — | (no key figure in the ledger) | — | — |",
+    "tbl_incentive_empty": "| - | - | (no key figure in the ledger) | - | - |",
     "blk_incentive_line":
         "- Reading: {what the interests behind the key figures do to the Answer}",
     "tbl_second": "| Action | First-order effect | Second-order effect | Who bears it | Evidence |",
@@ -287,7 +287,7 @@ TEXT = {
     "blk_premortem":
         ("- It is %s and the recommendation was followed and failed.\n"
          "- The three most likely causes: 1. {…} 2. {…} 3. {…}\n"
-         "- Which of these the evidence cannot rule out: {…} — {what would rule it out}"),
+         "- Which of these the evidence cannot rule out: {…} ({what would rule it out})"),
     "blk_rival":
         ("- Rival's answer: {rival.json answer, one sentence}\n"
          "- Reconciliation: {agree | differs}\n"

@@ -8,8 +8,8 @@
 
 ## Purpose
 
-<!-- What this research decides, in one to three sentences. Not "we want to know", but
-     "this is the input to which judgement". -->
+<!-- What this research decides, in one to three sentences, written as "this is the input
+     to which judgement". -->
 
 {who decides what, using the result of this research}
 
@@ -23,8 +23,8 @@
 - Decision: {who does what differently depending on the answer, and by when}
 - Question type: {descriptive | diagnostic | evaluative | prescriptive | predictive}
 - Presuppositions:
-  - {what the request takes as settled} — verify → KQ{n}
-  - {what the request takes as settled} — accept — {why}
+  - {what the request takes as settled}: verify → KQ{n}
+  - {what the request takes as settled}: accept, because {why}
 - Useless answer: {the answer that would be true, sourced, and of no use to the decision}
 - Pivotal observation: {the one fact that, if it came out the other way, would change the answer}
 
@@ -50,7 +50,7 @@
 
 ## Disconfirmation plan
 
-<!-- For each hypothesis, list what would be observed if it were false — before searching
+<!-- Before searching, list for each hypothesis what would be observed if it were false
      (collection_standards.md §3). -->
 
 | Hypothesis | Observable if false | Disconfirming query |
@@ -72,9 +72,9 @@
 ## Stopping rules
 
 - The collection floors are met (per mode and decision relevance; collection_standards.md §1) and two consecutive queries add nothing new
-- Early stop: three or more independent sources, no new evidence unit in the last two queries, and the KQ's conclusion at "likely" or above — all three together stop the collection even short of the DEEP floors (record it in floor_status.early_stop)
+- Early stop: three or more independent sources, no new evidence unit in the last two queries, and the KQ's conclusion at "likely" or above. All three together stop the collection even short of the DEEP floors (record it in floor_status.early_stop)
 - Ceiling: {a cap on total search queries, turns, or time}
-- Cutbacks recorded: {what you did when the planning budget check went over — fewer KQs, a decision KQ moved to background. Write "none" where the plan cleared the budget as written.}
+- Cutbacks recorded: {what you did when the planning budget check went over, such as fewer KQs or a decision KQ moved to background. Write "none" where the plan cleared the budget as written.}
 
 ## Out of scope
 

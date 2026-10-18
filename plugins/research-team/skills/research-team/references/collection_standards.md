@@ -28,7 +28,7 @@ headings is written in the language of the request, which the ledger records as
 - **Decision relevance (decision KQ / background KQ)**: in DEEP, split the key questions into
   decision KQs, which directly drive the conclusion or the recommendation, and background KQs,
   which establish premises and context. Declare the split in research_brief at Step 1 and have
-  every later stage merely read it — re-deciding importance at each stage turns variation in
+  every later stage merely read it, since re-deciding importance at each stage turns variation in
   judgement into variation in workload. At most four decision KQs; background KQs get the same
   floors as STANDARD. The notation is `[decision]` or `[background]` appended to the end of each
   key question line in research_brief, and `scripts/research_plan_linter.py` checks that it is
@@ -37,14 +37,14 @@ headings is written in the language of the request, which the ledger records as
   gets the same floors
 - **The unit the floors apply to**: DEEP applies the table per role, so when one key question
   has both collector and scholar assigned, each of them meets every number on its own. STANDARD
-  applies it per key question, and the two roles' totals may satisfy it together — but every
+  applies it per key question, and the two roles' totals may satisfy it together, but every
   launched role individually meets 3 or more queries and 1 or more disconfirmation query
   (`MIN_ROLE_ALLOCATION`). Applying only the total would let a fragment pass the deterministic
   check with scholar at zero queries whenever collector cleared the floor alone, and the report
   would pass with no academic evidence at all
 - Record every query in the search log, including queries that yielded nothing. What you looked
   for and failed to find is itself evidence
-- The floors are a minimum, not a target. Once two consecutive queries add no new information,
+- The floors are a minimum to meet. Once two consecutive queries add no new information,
   you may stop, provided the floors are met (theoretical-saturation stopping rule; source [9])
 - **Conclusion-sufficiency early stop**: in DEEP the floors are a target, and the STANDARD
   floors (6 queries, 3 independent sources, 1 disconfirmation query) are the absolute minimum.
@@ -55,13 +55,13 @@ headings is written in the language of the request, which the ledger records as
   `{independent_sources, consecutive_zero_new, conclusion_confidence, note}` under
   `floor_status.early_stop`. Where that record exists and the STANDARD floors are met,
   `scripts/evidence_auditor.py` and `scripts/validate_fragment.py` report the shortfall as a
-  warning rather than a failure. A shortfall with no record remains a failure.
-  Transcribe what was cut short into the report's limitations section — stopping means "not
-  investigated", not "does not exist"
+  warning only. A shortfall with no record remains a failure.
+  Transcribe what was cut short into the report's limitations section; stopping means "not
+  investigated" and never "does not exist"
 - **Session-wide search budget**: Claude Code caps WebSearch calls at 200 per session by default.
   The parent and every subagent share the cap, and past it a search returns a
-  budget-exceeded string instead of failing. The planning-stage estimate that keeps a study inside
-  the cap belongs to the planner, not to a collection agent: it is in pipeline.md, Step 1. What
+  budget-exceeded string and raises no error. The planning-stage estimate that keeps a study inside
+  the cap belongs to the planner; a collection agent makes none. It is in pipeline.md, Step 1. What
   matters here is that the academic APIs (Semantic Scholar / OpenAlex / Crossref / arXiv / PubMed)
   are called through `paper_search.py` and do not consume the cap
 
@@ -83,34 +83,34 @@ a national statistics office are documented in their own language and nowhere el
 - Record which of the four facets each query covers in the search log's `facet` field
   (`definition` / `data` / `counter` / `practice`). `scripts/validate_fragment.py` warns when a
   fragment records some facets and misses others, so the skew shows before the fragment is
-  returned rather than at synthesis
+  returned, before synthesis
 - Once you find a strong source, follow its references and citations to pick up adjacent
   sources (snowball sampling; source [6])
 - Vary period qualifiers (years, "latest") and operators (site: / filetype:pdf / quoted
   phrases)
-- **Filter with the search tool's own domain arguments, not only with `site:`.** WebSearch takes
+- **Filter with the search tool's own domain arguments as well as with `site:`.** WebSearch takes
   `allowed_domains` and `blocked_domains`. Spend at least one query per key question as a
   primary-source sweep with `allowed_domains` (for example `["go.jp", "e-stat.go.jp",
   "oecd.org"]` for statistics, the regulator's domain for a rule, the company's domain for a
   filing), and put the content farms that keep coming back into `blocked_domains` for the rest
   of the run. The call count is unchanged; what changes is the grade mix of what comes back.
-  `site:` reaches one domain per query, so it costs a query per domain — the arguments take a
+  `site:` reaches one domain per query, so it costs a query per domain, while the arguments take a
   list in one call
 - **Search broadly, then narrow**: start with short broad queries and move to specific terms as
-  you see results. Do not cling to a specific query that returns little — go back to a broad
+  you see results. Do not cling to a specific query that returns little; go back to a broad
   query and narrow again
 - For academic questions where completeness matters, record the search terms, the databases,
-  and the selection criteria, and make them transparent in the style of PRISMA reporting (the count
+  and the selection criteria. Make them transparent in the style of PRISMA reporting (the count
   found, the count excluded, and the reason; source [4])
-- On broad themes — subjects with no settled definition, or with two or more opposing positions —
+- On broad themes (subjects with no settled definition, or with two or more opposing positions),
   split the query sets by viewpoint (persona) when collecting. This prevents a single-viewpoint
   bias and increases the diversity of what you gather (STORM's multi-perspective simulation
   improves coverage; source [11])
 - Derive the tool-call budget from the collection floors in §1. Per key question and role, the
   guide is 20–28 calls for a DEEP decision KQ (12 searches plus 8–16 page fetches), 10–16 for a
   DEEP background KQ and for STANDARD (6 searches plus 4–10 fetches), and 3–10 for LIGHT. The
-  fetch share counts pages, not calls: one `fetch_page.py` call takes a whole batch of URLs.
-  **Set the budget above the floor. Never cut a floor to fit a budget** — §1 sets the minimum
+  fetch share counts pages; one `fetch_page.py` call takes a whole batch of URLs.
+  **Set the budget above the floor. Never cut a floor to fit a budget**: §1 sets the minimum
   work and the budget is only a brake on overrun. If you hit the budget with a floor unmet, do
   not stop there: continue to §1's saturation rule (two consecutive queries adding nothing) or
   to the three early-stop conditions. If the floor is still unmet, state the shortfall and the reason in
@@ -118,7 +118,7 @@ a national statistics office are documented in their own language and nowhere el
 
 ## 3. The disconfirmation duty
 
-Confirmation bias — collecting only evidence that supports the hypothesis — is the largest
+Confirmation bias (collecting only evidence that supports the hypothesis) is the largest
 systematic error in research (sources [1][2]). The countermeasure is to invert the search
 instruction.
 
@@ -145,7 +145,7 @@ instruction.
 
 - Never let a key figure rest only on grade-C sources. Grade C serves as supplementary
   or corroborating material only
-- Peer-reviewed papers are grade A; preprints are grade B, with "preprint, not peer-reviewed"
+- Peer-reviewed papers are grade A; preprints are grade B, with "preprint, without peer review"
   stated in the source's `descriptor`
 - Where a secondary review (a firm report, say) cites primary data, cite the primary source
 - Add a one-line narrative descriptor to any source that drives the conclusion: the publisher's
@@ -156,13 +156,13 @@ instruction.
   apply it mechanically)
 - Check for predatory journals (journals that charge fees and do not really peer-review) before
   accepting a paper. Acceptance within days, an opaque editorial board, absence from the major
-  databases (Scopus / Web of Science / PubMed) — where two or more such warning signs appear, treat
+  databases (Scopus / Web of Science / PubMed); where two or more such warning signs appear, treat
   the paper as rejected or as corroboration only, and check DOAJ or Think. Check. Submit. when
   in doubt
 - Prefer primary information (the publisher's own announcement, the primary data) over
   SEO-optimised aggregators and content farms (sites that hold no primary data and merely
   reprint or summarise others). This is the same idea as replacing a secondary review with its
-  primary source: grade by the primacy of the origin, not by how the page looks
+  primary source: grade by the primacy of the origin, whatever the page looks like
 - **Setting self_reported**: figures and effect sizes published by the method's proposer, a
   vendor, or an interested party are `self_reported: true`. When such a figure is also
   `is_key_figure`, add an attempt at independent corroboration to the §6 corroboration duty; if
@@ -170,14 +170,14 @@ instruction.
 
 ## 5. Judging source independence
 
-"Five sources" means five independent origins, not five URLs.
+"Five sources" means five independent origins, whatever the number of URLs.
 
 - Pages from the same publisher count as one source
 - Reprints, wire-service distribution, and multiple reports originating from one press release
   belong to the same independence cluster (`origin_cluster`) once traced back. Always follow the chain of
   citation before counting sources
-- Judge a source's reliability by what other sites say about the origin, not by how the page
-  itself looks (lateral reading: before reading the site in question, find out how other sites
+- Judge a source's reliability by what other sites say about the origin, whatever the page
+  itself looks like (lateral reading: before reading the site in question, find out how other sites
   assess that origin; source [7])
 - Assess the origin's reliability and the information's credibility on separate axes (the
   military intelligence grading system uses two axes, reliability A–F × credibility 1–6;
@@ -195,8 +195,8 @@ flags.
 | single_source | No corroborating source was found; one source only. Usable, but flag it explicitly |
 | conflicting | The values diverge across sources. Record both values and an account of why they differ |
 
-Never hide a conflict. Making a conflict and its structure visible — differing definitions,
-differing points in time, differing populations — is worth more than presenting a single value.
+Never hide a conflict. Making a conflict and its structure visible (differing definitions,
+differing points in time, differing populations) is worth more than presenting a single value.
 
 ## 7. Freshness rules
 
@@ -227,10 +227,10 @@ differing points in time, differing populations — is worth more than presentin
 
 Fetch pages through `scripts/fetch_page.py`, and read the cache it writes. The same script ingests
 the local materials the user supplied (text, HTML, DOCX, PDF) into the same cache under a canonical
-`file://` URL; a unit from such a file carries `source.user_supplied: true`, one `origin_cluster`
+`file://` URL. A unit from such a file carries `source.user_supplied: true`, one `origin_cluster`
 per file, a grade judged by the origin of the document, and counts at most once per key question
 toward the independent-source floor. WebFetch is the
-fallback, not the default, because it does not return the page as it is: it converts the page to
+fallback only, because it does not return the page as it is: it converts the page to
 Markdown, has a small model answer the `prompt`, and returns that answer. Record that answer as a
 verbatim quote and it fails the citation match (`scripts/citation_verifier.py` looks for the
 quote in the live page and requires 0.9 of its characters to appear, in order, inside one window
@@ -245,10 +245,10 @@ verifier applies, so a quote copied out of it matches by construction.
    is an expectation from the URL; the `grade` on an evidence unit is still your call under §4
    after reading the page
 2. **Fetch**: `python {SKILL_DIR}/scripts/fetch_page.py --run-dir {RUN_DIR} {fetch_order URLs}
-   --json`. Pass every URL in one call — they are fetched in parallel under a per-host interval.
+   --json`. Pass every URL in one call; they are fetched in parallel under a per-host interval.
    A URL already in the cache comes back as `cached` without a second request, which is how the
    no-duplicate-fetch rule is kept
-3. **Read the cache with Grep**, not by reading the file whole. Search the cached text for the
+3. **Read the cache with Grep**; do not read the file whole. Search the cached text for the
    figures and terms of your key question, then copy the quote out of the line the hit sits on.
    The line breaks in the cache are its own wrapping, so quote from inside one line
 4. **Fall back to WebFetch** for anything the fetch reports as `unsupported` (PDF), `thin`

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""report_auditor.py — the deterministic audit of the research report (report.md).
+"""report_auditor.py: the deterministic audit of the research report (report.md).
 
 Run it in research-team Step 4 (right after the draft and the revision) and in Step 5
 (the deterministic audit). It resolves the evidence IDs and checks the required
@@ -39,7 +39,7 @@ CONFIDENCE_LABELS = labels.CONFIDENCE_LABELS
 EVIDENCE_MARKER_RE = re.compile(r"\[E(\d+)\]")
 
 # The markers around what render_scaffold.py generated from the ledger. Lines between
-# the pair are not the writer's own, so they do not count towards the disconfirmation
+# the pair come from the generator, so they do not count towards the disconfirmation
 # section having a body.
 GENERATED_BEGIN_RE = re.compile(r"^\s*<!--\s*generated:\w+\s*-->\s*$")
 GENERATED_END_RE = re.compile(r"^\s*<!--\s*/generated:\w+\s*-->\s*$")
@@ -50,7 +50,7 @@ PROB_BAND_RE = labels.PROB_BAND_RE
 # A point estimate ("confidence 75%"), which the seven labels plus a band replace.
 POINT_ESTIMATE_RE = labels.POINT_ESTIMATE_RE
 
-# The R14 qualifiers. A claim on thin evidence carrying one is not an assertion.
+# The R14 qualifiers. A claim on thin evidence that carries one counts as hedged.
 HEDGE_PATTERNS = labels.HEDGE_PATTERNS
 # The verification.status values that count as thin (unchecked included).
 THIN_VERIFICATION = {"plausible", "disputed", "unchecked", ""}
@@ -101,7 +101,7 @@ def split_sentences(line):
 
 
 def is_substantive(line):
-    """Is this a line of substance — not a heading, a blank, a comment or a rule?"""
+    """Is this a line of substance, meaning anything other than a heading, a blank, a comment or a rule?"""
     s = line.strip()
     if not s or s.startswith(("#", "<!--", "---", "***")):
         return False
@@ -181,7 +181,7 @@ def has_placeholder_braces(line):
 
 def filled_lines_after_heading(rows, head_line):
     """Substantive lines under one heading, up to the next, with no {…} placeholder
-    markup left in them — R-ANALYSIS-EMPTY's "the writer put something of their own
+    markup left in them, the R-ANALYSIS-EMPTY test of "the writer put something of their own
     here"."""
     lines = []
     body = [r for r in rows if r[0] > head_line]
@@ -277,7 +277,7 @@ def audit(report_text, evidence_log, citation_check=None, rival=None):
         stripped = line.strip()
         if not stripped or stripped.startswith(("#", "|", ">", "<!--")):
             continue
-        # A confidence label or a probability band (65-80%) is not an asserted figure.
+        # A confidence label or a probability band (65-80%) counts as hedged.
         if labels.contains_confidence(line) or PROB_BAND_RE.search(line):
             continue
         if NUMERIC_ASSERTION_RE.search(line) and not EVIDENCE_MARKER_RE.search(line):

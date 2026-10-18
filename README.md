@@ -1,6 +1,6 @@
 # research-team
 
-A Claude Code plugin that runs research as a pipeline instead of a single prompt. It splits a
+A Claude Code plugin that runs research as a multi-stage pipeline. It splits a
 question into key questions, sends a team of subagents to collect evidence, and has a second set
 of agents attack that evidence from the sceptic's side. No report ships until deterministic
 scripts and an auditor agent have both passed it.
@@ -22,32 +22,32 @@ for its key question happen to be written.
 
 **Five stages.**
 
-1. **Question analysis and planning** — write down the decision the answer serves, the question
-   type (descriptive, diagnostic, evaluative, prescriptive, predictive), the presuppositions the
-   request rests on (each marked verify or accept), the useless answer, and the pivotal
-   observation; derive 2-7 key questions from the decision; state two or more competing
-   hypotheses and what would be observed if each were false, before searching. A linter checks the
+1. **Question analysis and planning**: write down the decision the answer serves and the question
+   type (descriptive, diagnostic, evaluative, prescriptive or predictive). Also write down the
+   presuppositions the request rests on (each marked verify or accept), the useless answer and the
+   pivotal observation. Then derive 2-7 key questions from the decision, and state two or more
+   competing hypotheses and what would be observed if each were false, before searching. A linter checks the
    plan and estimates the session's WebSearch budget.
-2. **Parallel collection** — one agent per key question, launched in a single message.
+2. **Parallel collection**: one agent per key question, launched in a single message.
    `research-collector` handles the general web (statistics, IR filings, reporting) and the local
-   materials the user supplied (PDF, DOCX, text, HTML), ingested into the same page cache;
+   materials the user supplied (PDF, DOCX, text or HTML) ingested into the same page cache.
    `research-scholar` handles academic literature through OpenAlex, arXiv, PubMed and Semantic
    Scholar. Each agent must clear a floor of queries, independent sources, and disconfirmation
    queries before it may return.
-3. **One wave of independent verification** — a deterministic citation check covers every
-   evidence unit (URL, DOI, arXiv ID, verbatim quote against the page or the cached local file);
-   `research-verifier` then takes up to five claims at a time — the conflicts, the citation
-   failures, the uncorroborated key figures and the claims that carry the conclusion — in a
+3. **One wave of independent verification**: a deterministic citation check covers every
+   evidence unit (URL, DOI, arXiv ID, verbatim quote against the page or the cached local file).
+   `research-verifier` then takes up to five claims at a time (the conflicts, the citation
+   failures, the uncorroborated key figures and the claims that carry the conclusion) in a
    context that never saw the collection, and tries to break them. In the same message,
    `research-rival` answers the decision from the evidence slices alone, without the brief or the
    draft, and the lead writes its first draft while they run.
-4. **Synthesis** — the Analysis section comes first: a hypothesis matrix, the mechanism, the
-   outside view, the source incentives, second-order effects and a premortem, as the question type
+4. **Synthesis**: the Analysis section comes first: a hypothesis matrix; the mechanism; the
+   outside view; the source incentives; second-order effects; and a premortem, as the question type
    requires, plus the reconciliation with the rival's reading (a disagreement caps the confidence).
    The writer works from per-key-question evidence extracts, keeps fact and interpretation in
    separate layers, and confines every estimate to a seven-level confidence vocabulary mapped onto
    probability bands.
-5. **One audit** — deterministic scripts check the ledger and the report, then `research-auditor`
+5. **One audit**: deterministic scripts check the ledger and the report, then `research-auditor`
    grades both against a 16-item binary rubric and samples atomic facts. The lead applies the
    findings once and delivers.
 
@@ -74,8 +74,8 @@ industry bodies, corporate IR and research firms; C is trade media, reporting an
 pipeline rejects a key figure that rests only on grade-C sources.
 
 Four reference files under `plugins/research-team/skills/research-team/references/` state the
-design rules (the agent definitions carry the operative text, so no agent reads a reference file at run time), and `methodology_sources.md` holds the academic grounding for them — every citation
-with a verified DOI or arXiv ID.
+design rules (the agent definitions carry the operative text, so no agent reads a reference file at run time), and `methodology_sources.md` holds the academic grounding for them (every citation
+with a verified DOI or arXiv ID).
 
 ## Install
 
@@ -91,7 +91,10 @@ and install again with the two lines above.
 
 Then ask for research in the ordinary way, in any language: "research X and give me sources",
 "look into X", "compare these and help me choose", "summarise it with evidence". The skill picks
-the mode and launches `research-team-lead`, which runs the pipeline in its own context.
+the mode. In a session running on Claude Fable, the main session runs the pipeline itself and
+writes the report. In a session on any other model, the skill launches `research-team-lead` on
+Opus, which runs the pipeline in its own context. Either way, the collection, verification,
+rival and audit agents run on Sonnet or Opus.
 
 ## What you get
 
@@ -108,10 +111,10 @@ A run writes into `research/{YYYYMMDD}-{topic-slug}/`:
 ## Requirements
 
 - Claude Code with plugin support.
-- Python 3 on `PATH`. The scripts use the standard library only — no packages to install. Tested
+- Python 3 on `PATH`. The scripts use the standard library only, so there are no packages to install. Tested
   on 3.11.
 - WebSearch and WebFetch enabled. Claude Code caps WebSearch at 200 calls per session by default
-  and then returns a budget message instead of results, so the planning linter estimates the run's
+  and then returns a budget message in place of results, so the planning linter estimates the run's
   query total and fails a plan that would exceed the cap. Raise
   `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` or cut key questions.
 - Optional: set `OPENALEX_MAILTO` to a contact address. OpenAlex routes callers who identify

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""evidence_auditor.py — the deterministic audit of the evidence ledger (evidence_log.json).
+"""evidence_auditor.py: the deterministic audit of the evidence ledger (evidence_log.json).
 
 Run it in research-team Step 5. It checks the structure (schema, URLs, grades, the
 consistency of the cross-references) and the quality (the collection floors, freshness,
@@ -223,7 +223,7 @@ def validate_early_stop(record):
     if record is None:
         return False, None
     if not isinstance(record, dict):
-        return False, "early_stop is not an object"
+        return False, "early_stop must be an object"
     sources = record.get("independent_sources")
     streak = record.get("consecutive_zero_new")
     label = record.get("conclusion_confidence")
@@ -341,7 +341,7 @@ class Auditor:
                     self.add("FAIL", "E-SRC", f"source.{field} is missing", loc)
             url = src.get("url", "")
             if url and (not URL_RE.match(url) or "..." in url or "…" in url):
-                self.add("FAIL", "E-URL", f"the URL is not a full absolute URL: {url!r}", loc)
+                self.add("FAIL", "E-URL", f"the URL must be a full absolute URL: {url!r}", loc)
             if src.get("grade") and not enum_ok(src["grade"], VALID_GRADES):
                 self.add("FAIL", "E-GRADE", f"invalid grade: {src['grade']!r}", loc)
             if src.get("published") and not PUBLISHED_RE.match(str(src["published"])):

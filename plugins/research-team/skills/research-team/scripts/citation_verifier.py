@@ -240,7 +240,7 @@ def http_request(url, timeout, method="GET", throttle=None):
     except urllib.error.HTTPError as e:
         return e.code, None, None, str(e)
     except Exception as e:
-        # Record network failures (timeout, URLError, ConnectionError) instead of dying on them
+        # Record network failures (timeout, URLError, ConnectionError) and carry on
         return None, None, None, str(e)
 
 
@@ -360,10 +360,10 @@ def containment(norm_quote, norm_body):
 
     The body is scanned with windows twice the quote's length, stepped by one quote
     length, so the quote always falls inside one window whatever its offset in the page.
-    The score counts the quote characters matched inside the window, not the similarity
-    of the two strings: a symmetric ratio over an equal-length window would charge the
-    quote for the surrounding page text, which made the verdict depend on where the
-    quote happened to sit rather than on whether it is there.
+    The score is the count of quote characters matched inside the window. A symmetric
+    similarity ratio over an equal-length window would charge the quote for the surrounding
+    page text, which made the verdict depend on where the quote happened to sit; the count
+    depends only on whether the quote is there.
     """
     qlen = len(norm_quote)
     best = 0.0
@@ -397,7 +397,7 @@ def check_quote_match(quote, body_text, truncated=False):
         return "found", (f"found a window matching {best:.2f} of the quote "
                          f"(difflib, threshold {QUOTE_MATCH_RATIO})")
     if truncated:
-        # The body was cut at the fetch limit. A quote beyond the cut is not a fabrication.
+        # The body was cut at the fetch limit. A quote beyond the cut may well be genuine.
         return "unfetchable", (f"the best match is {best:.2f}, but the body was cut at "
                                f"{MAX_BODY_BYTES} bytes (the quote may lie past the cut)")
     return "not_found", (f"the best match is {best:.2f}, below the threshold "

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""research_plan_linter.py — check the research plan (research_brief.md) for its required parts.
+"""research_plan_linter.py: check the research plan (research_brief.md) for its required parts.
 
 Run it in research-team Step 1. Standard library only.
 
@@ -64,7 +64,7 @@ MAX_AGENTS = {"DEEP": 18, "STANDARD": 12}
 MAX_TOOL_CALLS = {"DEEP": 300, "STANDARD": 180}
 
 # The rival analyst (research-rival.md): one agent, launched whenever the question type is
-# anything but descriptive — including where the type cannot be read, which is costed as
+# anything but descriptive, including where the type cannot be read, which is costed as
 # needing one so the estimate errs high when the type is unclear.
 TOOL_CALLS_PER_RIVAL = 4
 
@@ -131,7 +131,7 @@ def estimate_search_queries(mode, n_kq, assignment, relevance=None):
             collection += per_role_for(i) * (SCHOLAR_API_FACTOR if role == "scholar" else 1.0)
 
     # The verification stage scales with the number of claims verified alone, and that
-    # number is capped by the batch cap — so one more KQ adds no verification searches.
+    # number is capped by the batch cap, so one more KQ adds no verification searches.
     verification = (VERIFY_BATCHES.get(mode, 0) * VERIFY_CLAIMS_PER_BATCH
                     * COUNTER_QUERIES_PER_CLAIM)
     total = math.ceil(collection) + verification
@@ -362,11 +362,11 @@ def lint(text, mode):
                   f"verification {breakdown['verification']}) against a cap of {limit}")
         if estimate > limit:
             add("FAIL", "P-BUDGET",
-                detail + " — over the cap. Raise CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION, or "
+                detail + ": over the cap. Raise CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION, or "
                 "revisit the number of KQs and the role assignment (the cap counts the whole "
                 "session, so splitting the work across turns does not reset it)")
         else:
-            add("INFO", "P-BUDGET", detail + " — within it")
+            add("INFO", "P-BUDGET", detail + ": within it")
 
     # The agent and tool-call budget. A plan above it is cut back (fewer KQs, or a
     # decision KQ moved to background).
@@ -381,10 +381,10 @@ def lint(text, mode):
                   f"against a cap of {max_agents} agents and {max_calls} calls")
         if agents > max_agents or calls > max_calls:
             add("FAIL", "P-COST",
-                detail + " — over the cap. Cut the number of KQs, or move a decision KQ to "
+                detail + ": over the cap. Cut the number of KQs, or move a decision KQ to "
                 "background (record what you did in the stopping rules)")
         else:
-            add("INFO", "P-COST", detail + " — within it")
+            add("INFO", "P-COST", detail + ": within it")
 
     # Placeholders left unfilled from the template.
     placeholders = re.findall(r"\{[^{}\n]{1,40}\}", text_nc)

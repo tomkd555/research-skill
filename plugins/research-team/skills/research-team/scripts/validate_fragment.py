@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""validate_fragment.py — one evidence fragment checking itself.
+"""validate_fragment.py: one evidence fragment checking itself.
 
 In research-team Step 2 a collection agent (research-collector / research-scholar) runs
 this on its own fragment before returning it to the parent. It checks what a fragment can
-work out alone — the required fields, and the floors for total queries and disconfirmation
-queries — so that nothing comes back short.
+work out alone: the required fields, and the floors for total queries and disconfirmation
+queries, so that nothing comes back short.
 
 The independent-source floor can only be worked out per key question, across both roles,
 so evidence_auditor.py checks it after the merge and this script does not.
@@ -14,8 +14,8 @@ per-role floors as they stand; STANDARD applies the per-role minimum (three quer
 disconfirmation query). A background KQ in DEEP (--relevance background) gets STANDARD's
 floors. Where floor_status.early_stop records the three early-stop conditions (three or
 more independent sources, two consecutive queries with nothing new, a conclusion at
-"likely" or above) and STANDARD's floors are met, a shortfall is reported as WARN rather
-than FAIL.
+"likely" or above) and STANDARD's floors are met, a shortfall is reported as WARN, with FAIL
+withheld.
 
 Examples:
     python validate_fragment.py evidence_fragments/kq1_collector.json --mode DEEP
@@ -174,7 +174,7 @@ def main():
         print(f"error: the fragment is not valid JSON: {e}", file=sys.stderr)
         return 2
     if not isinstance(frag, dict):
-        print("error: the top level of the fragment is not an object", file=sys.stderr)
+        print("error: the top level of the fragment must be an object", file=sys.stderr)
         return 2
 
     findings = validate(frag, args.mode, role, args.relevance)

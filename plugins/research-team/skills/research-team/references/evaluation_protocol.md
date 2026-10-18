@@ -6,7 +6,7 @@ the auditor agent (research-auditor) and for the corroboration done at the verif
 sampling procedure operatively, so no agent reads this file at run time; the lead reads §6 when it
 applies the audit's findings.
 
-The report under audit carries English structure — section headings, table headers and
+The report under audit carries English structure: section headings, table headers and
 confidence labels, all held in `scripts/labels.py`, which is the source of record for them. Its
 prose is written in the language of the request, which the ledger records as
 `deliverable_language`. Audit the prose in that language and the structure against `labels.py`.
@@ -31,7 +31,7 @@ prose is written in the language of the request, which the ledger records as
 
 | Bias | What it is | Countermeasure |
 |---|---|---|
-| Position bias (source [4]) | In comparative evaluation, favouring the candidate presented first | Where a comparison is needed, evaluate twice with the order swapped and accept the result only if both agree. On disagreement, treat it as a draw and state the difference |
+| Position bias (source [4]) | In comparative evaluation, favouring the candidate presented first | The pipeline asks no agent to pick between candidates shown in sequence: the auditor and the verifiers judge one item at a time. Its one comparison across options, the hypothesis matrix, is read by row and by column before the survivor is named (pipeline.md Step 4) |
 | Verbosity bias (source [4]) | Scoring longer, more detailed output higher regardless of content | Do not include length as an evaluation item. Make the check items existence judgements, such as "does it carry an evidence ID" |
 | Self-preference (source [3]) | Scoring one's own output higher | Separate the writing and evaluation contexts (§1-3). Where possible, assign evaluation to an agent on a different model or configuration |
 | Leniency and central tendency | Rounding every item to "broadly fine" | Force binary judgements. Require a location (line, ID) for every "met" judgement. A "met" with no location is treated as "not met" |
@@ -52,7 +52,7 @@ writes the results to `citation_check.json`.
 |---|---|---|
 | R1 | Every key question has a conclusion, or is marked unresolved with a reason | Cross-check the KQ coverage table against the body |
 | R2 | Sentences stating a fact carry an evidence ID [E#] | Script detection plus a visual sample |
-| R3 | Figures that drive a conclusion carry one of corroborated / single_source / conflicting, and conflicting figures are presented with both sides | For every `is_key_figure` in the ledger, confirm that a corroborated flag has two or more independent clusters (`origin_cluster`) — the two-independent-cluster principle for key figures. For single_source, confirm the reason (a record of the search for other sources) is in `note` |
+| R3 | Figures that drive a conclusion carry one of corroborated / single_source / conflicting, and conflicting figures are presented with both sides | For every `is_key_figure` in the ledger, confirm that a corroborated flag has two or more independent clusters (`origin_cluster`); this is the two-independent-cluster principle for key figures. For single_source, confirm the reason (a record of the search for other sources) is in `note` |
 | R4 | A disconfirmation and conflicting-information section exists and is non-empty, or the reason it is empty (the record of the disconfirmation search) is shown | Cross-check against the ledger's `disconfirmation`. The range between `<!-- generated:disconfirmation -->` and `<!-- /generated:disconfirmation -->` is a table `render_scaffold.py` generated from the ledger and is excluded from the judgement. Judge on what the writer wrote |
 | R5 | Estimates and forecasts use the seven-level confidence vocabulary plus a probability band | Script detection plus visual check |
 | R6 | The study's limitations and evidence gaps are stated | Section existence plus a cross-check against the ledger's `gaps` |
@@ -73,15 +73,15 @@ writes the results to `citation_check.json`.
 | R15 | The report's limitations section notes the scope within which the verification methods apply (for example: self-verification is unstable without external checking; sampling-based confidence methods work only on extrinsic confabulation and cannot detect intrinsic confabulation or systematic error; source [10]) |
 
 Handling the three-valued attribution judgement (research-verifier's `attribution_check`, whose
-definition is in that agent's own file): Accept supports as is. Treat misattributed as refuted and remove it from the report. partial — where the source only partly supports the claim — is either
+definition is in that agent's own file): Accept supports as is. Treat misattributed as refuted and remove it from the report. partial (where the source only partly supports the claim) is either
 presented with both sides in the body or reduced to a limiting expression such as "so far as the
 source goes" or "within the range the source covers"; writing it as a flat assertion in the way
 supports allows is prohibited (this interacts with R14).
 
 ## 4. Atomic-fact sampling check
 
-The factual accuracy of a long report is measured per atomic fact — a single claim that cannot
-be divided further — not by an overall impression (sources [5][6]).
+The factual accuracy of a long report is measured per atomic fact (a single claim that cannot
+be divided further); an overall impression is not used as the measure (sources [5][6]).
 
 1. Extract factual claims from the report body: 10 in DEEP, 5 in STANDARD (the extraction need
    not be strictly random; even sampling in evidence-ID order is fine)
@@ -134,21 +134,20 @@ completeness of the audit.
 
 | Finding | Minimum re-run scope |
 |---|---|
-| R1, R2, R5, R6, R8–R12, R14, R15, R16, and the part of R4 that is a writing omission | **Step 4 only**. The ledger is unchanged (for R16 the rival's JSON is already on disk) |
+| R1, R2, R5, R6, R8–R12 and R14–R16 and the part of R4 that is a writing omission | **Step 4 only**. The ledger is unchanged (for R16 the rival's JSON is already on disk) |
 | R13, a missing verdict, and the part of R3 where verification is incomplete | **Step 3** (re-verify only the affected evidence) → Step 4 |
 | The part of R3 that is insufficient corroboration, the part of R4 that is an insufficient disconfirmation search, R7, and a FAIL on `E-FLOOR-*` | **Step 2** (additional collection for that KQ only) → Step 3 → Step 4 |
 
 Resubmission to Step 2 is limited to cases where the evidence in question is cited as the basis
 of a conclusion or a recommendation in the report. Insufficient corroboration for evidence that
 no conclusion cites is passed through by stating it in the limitations section, without
-additional collection — re-collecting where it does not move the conclusion only adds cost
+additional collection, since re-collecting where it does not move the conclusion only adds cost
 without changing the verdict. An `E-FLOOR-*` finding downgraded to WARN by an early-stop record
-(collection_standards.md §1) is not a resubmission target; transcribe what was cut short into
+(collection_standards.md §1) stays out of resubmission; transcribe what was cut short into
 the limitations section.
 
-In a Step 4 re-run, keep the KQ sections with no findings intact. Apply the two-pass drafting
-(recall → precision) only to what was rewritten; do not revise a section that has already been
-through both passes. Re-render the generated regions with `render_scaffold.py --merge`, so the
+In a Step 4 re-run, keep the KQ sections with no findings intact and rewrite only what each
+finding names. Re-render the generated regions with `render_scaffold.py --merge`, so the
 summary, the KQ coverage table and the source list stay consistent with the rewritten sections.
 
 ## Sources

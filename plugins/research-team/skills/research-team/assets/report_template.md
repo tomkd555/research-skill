@@ -1,12 +1,11 @@
-# {topic} — research report
+# {topic}: research report
 
 <!-- research-team Step 4 deliverable. Check it with python {SKILL_DIR}/scripts/report_auditor.py report.md --evidence evidence_log.json --citation citation_check.json -->
 
 <!-- Match the report's length to the substance the evidence carries. No filler sections, no
      boilerplate, no closing summary that repeats a section the reader has just read. Answer to
      the decision, Summary and KQ coverage restate the same conclusion on purpose, as a cross-check
-     against what was missed — hold each to the length stated for it rather than expanding all
-     three. -->
+     against what was missed. Hold each of the three to the length stated for it. -->
 
 - as_of: {YYYY-MM-DD} / mode: {STANDARD | DEEP}
 - Question type: {descriptive | diagnostic | evaluative | prescriptive | predictive}
@@ -37,10 +36,10 @@
 ### KQ1: {…?}
 
 <!-- render_scaffold.py generates the ceiling line and the evidence table from
-     evidence_log.json. Do not rewrite them. The evidence column is bare (E1) rather than
-     [E1] so that it does not count as a body citation. -->
+     evidence_log.json. Do not rewrite them. The evidence column holds bare IDs (E1), so
+     that it does not count as a body citation the way [E1] does. -->
 
-- Confidence ceiling (computed): {label} ({band}) — {grounds}. The writer picks the final label.
+- Confidence ceiling (computed): {label} ({band}); basis: {grounds}. The writer picks the final label.
 
 | Evidence | Claim | Grade | Corroboration | Verification |
 |---|---|---|---|---|
@@ -77,7 +76,7 @@
      evidence is consistent with one hypothesis and inconsistent with another. -->
 
 - Non-diagnostic evidence: {E#, E#}
-- Hypothesis eliminated: {H#} — by {E#}
+- Hypothesis eliminated: {H#}, by {E#}
 - Surviving hypothesis: {H#}, on {n} diagnostic units
 
 ### Mechanism
@@ -119,7 +118,7 @@
 
 - It is {as_of + 12 months} and the recommendation was followed and failed.
 - The three most likely causes: 1. {…} 2. {…} 3. {…}
-- Which of these the evidence cannot rule out: {…} — {what would rule it out}
+- Which of these the evidence cannot rule out: {…} ({what would rule it out})
 
 ### Rival reading
 
@@ -145,7 +144,7 @@
 | {…} | {…} | {…} | {…} | {…} |
 <!-- /generated:disconfirmation -->
 
-- {the disconfirming fact or the opposing view}[E#] — {what it does to the conclusion}
+- {the disconfirming fact or the opposing view}[E#]: {what it does to the conclusion}
 - Reading of the disconfirmation search: {how the table above moves the confidence}
 
 ## Insight and implications
@@ -165,7 +164,7 @@
 | {…} | {…} | {…} |
 
 <!-- render_scaffold.py generates the early-stop table from the ledger's floor_status.
-     An early stop means "not looked at", not "not there", so state it as a limit. -->
+     An early stop means the rest was left unexamined, so state it as a limit. -->
 
 <!-- generated:early_stop -->
 | KQ | Role | Independent sources | Consecutive zero-new | Confidence | Note |

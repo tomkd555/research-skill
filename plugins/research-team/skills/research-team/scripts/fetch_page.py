@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """fetch_page.py - fetch a source page and cache its text.
 
-The default fetch path for research-team Step 2 (collection), used instead of WebFetch.
+The default fetch path for research-team Step 2 (collection), used in place of WebFetch.
 WebFetch returns a small model's answer to a prompt, so it cannot guarantee the wording of
 the original. This script stores the extracted page text as it is; the collection agent then
 greps the cache for the passage it needs and copies the verbatim_quote out of it. The text
 goes through the same extraction and normalisation as citation_verifier.py, so the Step 3
-quote check matches by construction rather than by the agent following an instruction.
+quote check matches by construction, with no reliance on the agent following an instruction.
 
 Pages whose text cannot be taken (PDF, JavaScript-rendered, paywalled) come back with a
-status instead of a file; fall back to WebFetch for those (collection_standards.md §9).
+status and no file; fall back to WebFetch for those (collection_standards.md §9).
 
 Output: {RUN_DIR}/pages/{first 16 hex of the URL's SHA1}.txt and {RUN_DIR}/pages/index.json
-The body is wrapped at about 200 characters. The wrapping belongs to the cache, not to the
-original text.
+The body is wrapped at about 200 characters. The wrapping belongs to the cache alone; the
+original text keeps its own line breaks.
 
 Examples:
     python fetch_page.py --run-dir research/20260816-topic https://example.com/a https://example.com/b
@@ -136,7 +136,7 @@ def _write_cache(path, url, text):
     """Write the header block plus the wrapped body, shared by a web fetch and a local ingest."""
     accessed = datetime.date.today().isoformat()
     header = (f"# url: {url}\n# accessed: {accessed}\n# chars: {len(text)}\n"
-              "# Line breaks belong to this cache, not to the source. Quote from inside one line.\n\n")
+              "# Line breaks belong to this cache alone; the source has its own. Quote from inside one line.\n\n")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(header + wrap_text(text) + "\n")

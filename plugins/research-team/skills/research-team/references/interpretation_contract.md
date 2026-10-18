@@ -1,15 +1,15 @@
 # Interpretation contract (the source of record for interpreting research results correctly)
 
 LLM interpretation errors come in known shapes: overlooking information placed in the middle of a
-long context (source [1]), sycophancy toward the user's view (source [2]), accepting unverified
-presuppositions (source [3]), judgements that shift with presentation order (source [4]),
-fabricated bibliographic details (source [5]), and confusing stale training knowledge with
+long context (source [1]); sycophancy toward the user's view (source [2]); accepting unverified
+presuppositions (source [3]); judgements that shift with presentation order (source [4]);
+fabricated bibliographic details (source [5]); and confusing stale training knowledge with
 search results (source [6]). This document sets out the countermeasures as rules in four
 layers: the structure of evidence, the hand-off between agents, synthesis, and expression.
 
 A deliverable's structure is English: its section headings, its table headers and its confidence
 labels, all held in `scripts/labels.py`, which is the source of record for them. The prose under
-those headings — the claims, the conclusions, the report body — is written in the language of the
+those headings (the claims, the conclusions, the report body) is written in the language of the
 request, which the ledger records as `deliverable_language`.
 
 ## 1. The structure of an evidence unit
@@ -22,7 +22,7 @@ definition, `agents/research-collector.md`). The fields that carry the interpret
 |---|---|
 | id | E1, E2, … Every claim in the report links to one of these |
 | kq_ids | The IDs of the key questions it answers (more than one is allowed) |
-| claim | **One falsifiable proposition**, in the third person. No causation, implication, or recommendation — those belong to the insight layer |
+| claim | **One falsifiable proposition**, in the third person. No causation, implication, or recommendation (those belong to the insight layer) |
 | claim_type | fact (observed), estimate (projection or forecast), opinion (the publisher's view) |
 | verbatim_quote | A **verbatim quote** from the source, in its original language, up to about 40 words. No summary or paraphrase |
 | source | publisher / title / url (a full absolute URL, never abbreviated) / published / grade / origin_cluster |
@@ -33,7 +33,7 @@ definition, `agents/research-collector.md`). The fields that carry the interpret
 | source.doi | Optional. The source's DOI (e.g. "10.18653/v1/2023.emnlp-main.398"). When present, citation_verifier.py checks that it resolves |
 | source.arxiv_id | Optional. The source's arXiv ID (e.g. "2402.14207"). When present, citation_verifier.py checks that it resolves |
 | archive | Optional. A Wayback Machine snapshot `{wayback_url, timestamp}`, recorded as an alternative route when the URL is unreachable |
-| superseded_by | Optional. A replacement marker used when conflicting newer evidence is confirmed (e.g. "E37"). **Never delete the original evidence unit** — write the new evidence's ID into this field to show the replacement |
+| superseded_by | Optional. A replacement marker used when conflicting newer evidence is confirmed (e.g. "E37"). **Never delete the original evidence unit**; write the new evidence's ID into this field to show the replacement |
 | self_reported | Optional (default false). true when the figure or effect size comes from the method's proposer, a vendor, or an interested party |
 | lineage | Optional. `{collected_by, kq_id, fragment_file}`. Records which agent run produced this evidence, and from which key question |
 
@@ -47,13 +47,12 @@ collection_standards.md §6.
 
 Three things about this structure carry the interpretation accuracy.
 
-1. **Propositional form**: writing "the X market was worth Y in 2025, per Z's survey" rather
-   than a vague observation such as "X is growing" makes the statement true or false, which lets
+1. **Propositional form**: writing "the X market was worth Y in 2025, per Z's survey"
+   makes the statement true or false (a vague observation such as "X is growing" cannot be checked), which lets
    the later verification, corroboration, and disconfirmation run mechanically
 2. **Verbatim quotes**: they make it checkable whether a generated claim is actually written in
    the source (whether it is attributable). LLMs generate bibliographies that do not exist and
-   content that is absent from sources that do (source [5]); the countermeasure is not "cite a
-   source" but "quote the passage verbatim and match it" (the attributability approach of
+   content that is absent from sources that do (source [5]); the countermeasure is to quote the passage verbatim and match it (the attributability approach of
    source [7])
 3. **Separating claim_type**: synthesising facts, estimates, and opinions as one kind lets a
    publisher's promotion or forecast propagate as fact. Record them by type, and keep them
@@ -61,7 +60,7 @@ Three things about this structure carry the interpretation accuracy.
 
 ## 2. Rules for the hand-off between agents
 
-- **Structured responses are mandatory**: a subagent's response is fixed to JSON — the evidence
+- **Structured responses are mandatory**: a subagent's response is fixed to JSON: the evidence
   array fragment plus the search-log fragment. Free prose is prohibited, because prose invites
   reinterpretation at merge time, which means degradation and contamination
 - **Self-contained instructions**: subagents have no conversational context. The instruction
@@ -70,7 +69,7 @@ Three things about this structure carry the interpretation accuracy.
   Insights, implications, and recommendations are written at the synthesis stage (Step 4) by the
   caller alone, and every one of them must be traceable back to an evidence ID. An insight that
   cannot be traced back does not go in the report
-- **Carrying numbers**: a number travels as one set — value, unit, denominator, period,
+- **Carrying numbers**: a number travels as one set: value, unit, denominator, period,
   definition. Carry only "up 50%", and once the denominator and the period are gone, no one can verify the number
 
 ## 3. Rules for synthesis (countering long contexts)
@@ -86,16 +85,16 @@ or the end (source [1]). In DEEP research, where the ledger grows large, observe
 - **Draw from the ledger**: when writing the report, always re-read the per-key-question slices
   in `kq_slices/` to source a fact (they are extracts `render_scaffold.py` generated from the
   ledger, and reading one is equivalent to reading the ledger). Evidence belonging to no key
-  question is in `kq_slices/cross_cutting.md`. Do not write from memory — the residue of the
-  context so far. Do not overwrite search results with training-time knowledge (source [6];
-  change after the as-of date is "not investigated", not "absent")
+  question is in `kq_slices/cross_cutting.md`. Do not write from memory (the residue of the
+  context so far). Do not overwrite search results with training-time knowledge (source [6];
+  change after the as-of date is recorded as "not investigated", never as "absent")
 
 ## 4. Operating procedures against known biases
 
 | Known shape | Procedure |
 |---|---|
 | Sycophancy (source [2]) | Register the user's initial hypothesis as competing hypothesis H1 and do not privilege it. Search for supporting and disconfirming evidence with equal effort. Never count the user's approval as evidence |
-| Accepting unverified presuppositions (source [3]) | Presuppositions embedded in the request (such as "now that X has become the mainstream choice, ...") are listed in research_brief's Question analysis block, each marked `verify → KQn` or `accept — reason`, before any search runs. A `verify` presupposition is a key question or a verification target; none is treated as fact before verification |
+| Accepting unverified presuppositions (source [3]) | Presuppositions embedded in the request (such as "now that X has become the mainstream choice, ...") are listed in research_brief's Question analysis block, each marked `verify → KQn` or `accept, because {reason}`, before any search runs. A `verify` presupposition is a key question or a verification target; none is treated as fact before verification |
 | Order effects (source [4]) | When comparing several options or hypotheses, read the hypothesis matrix once by row and once by column before naming the survivor, and check that the conclusion does not move with the order |
 | A confidently wrong frame | The rival analyst (`research-rival`) answers the decision from the evidence slices alone, without the brief or the draft; the report reconciles with it in the Analysis section and caps its confidence where they differ (pipeline.md Step 4) |
 | Anchoring (source [8]) | Do not make the first figure you find the reference point. For key figures, line up the values from independent sources before deciding a representative value and a range. For a forecast, the outside view's base rate is the reference point |
@@ -104,10 +103,13 @@ or the end (source [1]). In DEEP research, where the ledger grows large, observe
 
 - Attach an evidence ID `[E#]` to every sentence stating a fact. Never write an assertion
   without one
+- Remove all mannered prose: where a literal phrase is available, use it
+- State each claim in your own words. Where a sentence keeps a source's wording, put that wording
+  in quotation marks; the verbatim text itself lives in the ledger's `verbatim_quote`
 - Express estimates and forecasts with the seven-level confidence vocabulary plus a probability
   band (point estimates are prohibited; the vocabulary is below). Do not use vague hedges such
   as "it may be", "it seems", "probably"
-- Use absolute dates ("June 2026") rather than relative ones ("last year", "recently", "now"),
+- Use absolute dates ("June 2026"); never use relative ones ("last year", "recently", "now"),
   and state the as-of date at the top of the report
 - Give every number its unit, denominator, period, and definition. For a value given as a rate,
   confirm the denominator; for one given as a count, confirm its ratio to the population
@@ -117,8 +119,8 @@ or the end (source [1]). In DEEP research, where the ledger grows large, observe
 ### Confidence vocabulary (seven levels)
 
 Estimates and forecasts use these seven labels, and no other label or probability band is mixed
-into the same document. The labels stay in English whatever language the prose is in — in the
-report and in any message to the user that carries one — and a label is written with its band as
+into the same document. The labels stay in English whatever language the prose is in (in the
+report and in any message to the user that carries one), and a label is written with its band as
 `roughly even chance (45-65%)`, never translated and never reworded. Pairing a
 label with a probability band follows the intelligence-analysis standard for mapping estimative
 language onto probability ranges (sources [9][10]); the wording is that standard's own
@@ -154,7 +156,7 @@ kinds of failure differ, so the retry counts differ too.
    one level and record the reason in `note`
 
 Conforming to the schema guarantees the structure of the output and nothing about the
-reliability of its content (source [11]). The degraded mark exists to keep visible, rather than delete, evidence whose structure is intact but whose certainty has dropped.
+reliability of its content (source [11]). The degraded mark keeps visible the evidence whose structure is intact but whose certainty has dropped; such evidence is never deleted.
 
 ## 7. The final-message contract at delivery
 
@@ -169,8 +171,8 @@ The final message at Step 6 (delivery) keeps this order.
 6. Absolute paths of the deliverables
 
 Never add to the final message a claim or a number that is absent from report.md.
-What reaches the conversation is a transcription of report.md, not new writing. Keep the message
-short by being selective about which findings you transcribe, not by compressing the writing into
+What reaches the conversation is a transcription of report.md and adds no new writing. Keep the message
+short by selecting which findings you transcribe; never compress the writing into
 fragments, abbreviations, or arrow chains.
 
 ## Sources

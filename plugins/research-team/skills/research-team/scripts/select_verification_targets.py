@@ -11,7 +11,7 @@ lead names with `--must-verify` ranks first and is forced into an opus batch; co
 sources; a citation check that came back CRITICAL; a key figure not corroborated across two
 or more independent source clusters; a single-source claim belonging to a decision KQ. A key
 figure that is corroborated across clusters, and any claim whose claim_type is estimate, rank
-last — behind a single source — because independence already backs the figure and an estimate
+last (behind a single source) because independence already backs the figure and an estimate
 carries no fact to get wrong. On top of that, the number of batches is capped per mode, and
 the excess is cut starting from the lowest-priority batch. The evidence IDs cut this way
 appear under dropped in the output, and their count and the reason belong in the gaps of the
@@ -21,14 +21,14 @@ a mode where none is tagged) that still has no target gets its single highest-ra
 unit added anyway, signalled kq_minimum, so the confidence ceiling cannot cap it at "likely"
 only because nobody was sent to check it.
 
-Wave 1 uses the signals the evidence ledger settles on its own — key figures, single
+Wave 1 uses the signals the evidence ledger settles on its own: key figures, single
 sources, conflicts, key figures resting on grade C alone, self-reported key figures, claims
-whose claim_type is estimate — and, when `--citation` names a finished citation_check.json,
+whose claim_type is estimate; and, when `--citation` names a finished citation_check.json,
 folds in every evidence unit whose citation check came back CRITICAL, ranked by the same
 SIGNAL_RANK as everything else. This is the normal shape now that S3 finishes
 citation_verifier.py before S4 starts, so one call covers both. Wave 2 exists for a gap
 resubmission: called later, with a fresher citation_check.json, it picks up whatever
-CRITICAL result wave 1 left uncovered — a WARN (an unreachable page, a transient network
+CRITICAL result wave 1 left uncovered. A WARN (an unreachable page, a transient network
 error) launches no agent either way; `citation_verifier.py --retry-warn` re-requests it
 instead. `--must-verify` is honoured in whichever wave names it.
 
@@ -81,7 +81,7 @@ SIGNAL_LABELS = {
 # The cut order: the lower the rank, the later a signal is cut once a mode's batch cap is
 # reached. A corroborated key figure and an estimate rank last, behind a single source,
 # because a second independent cluster already backs the figure and an estimate carries no
-# fact to get wrong. kq_minimum is not ranked here — it is added after the cap has already
+# fact to get wrong. kq_minimum is not ranked here; it is added after the cap has already
 # cut what it will.
 SIGNAL_RANK = {
     "conclusion_driver": 0,
@@ -188,8 +188,8 @@ def ledger_signals(log):
 def citation_signals(citation, known_ids):
     """Return the signals taken from the citation-check severities, as {evidence_id: [signal]}.
 
-    Only CRITICAL is targeted (quote_match: not_found, DOI/arXiv not_found). A WARN — an
-    unreachable page or a transient network error — launches no agent; citation_verifier.py
+    Only CRITICAL is targeted (quote_match: not_found, DOI/arXiv not_found). A WARN (an
+    unreachable page or a transient network error) launches no agent; citation_verifier.py
     --retry-warn re-requests it instead.
     """
     signals = {}

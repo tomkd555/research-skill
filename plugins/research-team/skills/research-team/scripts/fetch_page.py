@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """fetch_page.py - fetch a source page and cache its text.
 
-The default fetch path for research-team Step 2 (collection), used in place of WebFetch.
+The default fetch path for the research-team collectors, used in place of WebFetch.
 WebFetch returns a small model's answer to a prompt, so it cannot guarantee the wording of
 the original. This script stores the extracted page text as it is; the collection agent then
-greps the cache for the passage it needs and copies the verbatim_quote out of it. The text
-goes through the same extraction and normalisation as citation_verifier.py, so the Step 3
+greps the cache for the passage it needs and copies the quote out of it. The text
+goes through the same extraction and normalisation as citation_verifier.py, so check.py's
 quote check matches by construction, with no reliance on the agent following an instruction.
 
 Pages whose text cannot be taken (PDF, JavaScript-rendered, paywalled) come back with a
-status and no file; fall back to WebFetch for those (collection_standards.md §9).
+status and no file; fall back to WebFetch for those (research-collector.md).
 
 Output: {RUN_DIR}/pages/{first 16 hex of the URL's SHA1}.txt and {RUN_DIR}/pages/index.json
 The body is wrapped at about 200 characters. The wrapping belongs to the cache alone; the
@@ -284,7 +284,7 @@ def main():
             print(f"[{r['status']}] {r['url']}"
                   + (f" -> {r['path']} ({r['chars']} chars)" if r["path"] else f" - {r['detail']}"))
         if failed:
-            print(f"{len(failed)} URL(s) fall back to WebFetch (collection_standards.md §9)")
+            print(f"{len(failed)} URL(s) fall back to WebFetch (research-collector.md)")
 
     return 1 if failed else 0
 

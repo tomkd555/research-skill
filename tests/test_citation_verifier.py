@@ -416,8 +416,20 @@ def test_found_cached_when_live_differs():
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def test_decode_japanese_legacy_encodings():
+    """A Shift_JIS page with no header charset decodes through its <meta> tag or a strict cp932 try."""
+    body = "<html><head><meta charset=\"Shift_JIS\"></head><body>生成AIの活用方針を定めている企業は49.7%</body></html>"
+    raw = body.encode("cp932")
+    assert "49.7%" in cv.html_to_text(raw) and "生成AI" in cv.html_to_text(raw)
+    raw_no_meta = "<p>中小企業は34%</p>".encode("cp932")
+    assert "中小企業" in cv.html_to_text(raw_no_meta)
+    assert "日本" in cv.html_to_text("<p>日本</p>".encode("utf-8"))
+    print("decode: meta charset, strict cp932 fallback and UTF-8 all decode")
+
+
 if __name__ == "__main__":
     test_determinism()
+    test_decode_japanese_legacy_encodings()
     test_no_head_when_body_needed()
     test_throttle_does_not_chain_response_time()
     test_throttle()

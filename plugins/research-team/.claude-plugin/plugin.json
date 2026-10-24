@@ -1,8 +1,8 @@
 {
   "name": "research-team",
   "displayName": "Research Team",
-  "version": "1.2.0",
-  "description": "Runs research as a five-stage pipeline over a team of subagents, and returns a report whose every claim links to a verified evidence ledger. Bundles the literature-review skill for academic sources.",
+  "version": "2.0.0",
+  "description": "Researches any subject with parallel budgeted collectors, one writer and one verification wave, and returns a short report in which every factual sentence cites evidence whose quote a script has matched against the cached source page. Bundles the literature-review skill for academic sources.",
   "author": {
     "name": "tomkd555",
     "url": "https://github.com/tomkd555"

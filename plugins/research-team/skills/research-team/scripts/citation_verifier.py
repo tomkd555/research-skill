@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """citation_verifier.py - machine verification of the citations in evidence_log.json.
 
-Used in research-team Step 3 (independent verification) and Step 5 (machine audit). It
+check.py imports check_quote_match, normalize_text and cache_name, and calls run() once per
+merge for URL reachability and DOI/arXiv resolution (empty quote); the command
+line below reads a ledger in the {"evidence": [...]} shape. It
 checks the HTTP reachability of every source URL, resolves DOIs and arXiv IDs, and matches
 each verbatim_quote against the body of its source. Standard library only (it uses the
 network).
@@ -20,8 +22,8 @@ Examples:
 
 Output: citation_check.json, written by default to the directory of the input file. Every
 evidence ID carries a severity (PASS/WARN/CRITICAL). A not_found result (the quote does not
-match, or the DOI/arXiv ID does not resolve) is a CRITICAL candidate; the final call belongs
-to the auditor agent. This script never rewrites evidence_log.json itself - writing verdicts
+match, or the DOI/arXiv ID does not resolve) is a CRITICAL candidate; check.py marks the item
+failed. This script never rewrites evidence_log.json itself - writing verdicts
 back is the parent's and the verifier's job.
 
 Exit codes: 0 = PASS or WARN only / 1 = at least one CRITICAL / 2 = usage or I/O error
@@ -171,17 +173,32 @@ class _TextExtractor(html.parser.HTMLParser):
         return " ".join(self._parts)
 
 
-def html_to_text(body_bytes, encoding_hint=None):
-    for enc in [encoding_hint, "utf-8", "cp1252", "latin-1"]:
+META_CHARSET = re.compile(rb"""<meta[^>]+charset\s*=\s*["']?\s*([A-Za-z0-9_\-]+)""", re.I)
+
+
+def decode_body(body_bytes, encoding_hint=None):
+    """Decode with the header charset, else the page's <meta> charset, else the first strict
+    decode among UTF-8 and the Japanese legacy encodings (many go.jp pages send Shift_JIS
+    with no header charset)."""
+    meta = META_CHARSET.search(body_bytes[:4096])
+    declared = [encoding_hint, meta.group(1).decode("ascii") if meta else None]
+    for enc in declared:
         if not enc:
             continue
         try:
-            text = body_bytes.decode(enc, errors="replace")
-            break
-        except (LookupError, UnicodeDecodeError):
+            return body_bytes.decode(enc, errors="replace")
+        except LookupError:
             continue
-    else:
-        text = body_bytes.decode("utf-8", errors="replace")
+    for enc in ("utf-8", "cp932", "euc-jp"):
+        try:
+            return body_bytes.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return body_bytes.decode("utf-8", errors="replace")
+
+
+def html_to_text(body_bytes, encoding_hint=None):
+    text = decode_body(body_bytes, encoding_hint)
     parser = _TextExtractor()
     try:
         parser.feed(text)

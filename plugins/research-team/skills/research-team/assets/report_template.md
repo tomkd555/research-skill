@@ -1,203 +1,22 @@
-# {topic}: research report
+# {Title that states the question}
 
-<!-- research-team Step 4 deliverable. Check it with python {SKILL_DIR}/scripts/report_auditor.py report.md --evidence evidence_log.json --citation citation_check.json -->
+As of {YYYY-MM-DD}. Tier: {STANDARD | DEEP}.
 
-<!-- Match the report's length to the substance the evidence carries. No filler sections, no
-     boilerplate, no closing summary that repeats a section the reader has just read. Answer to
-     the decision, Summary and KQ coverage restate the same conclusion on purpose, as a cross-check
-     against what was missed. Hold each of the three to the length stated for it. -->
+## Answer
 
-- as_of: {YYYY-MM-DD} / mode: {STANDARD | DEEP}
-- Question type: {descriptive | diagnostic | evaluative | prescriptive | predictive}
-- Independent sources: {N} / evidence units: {N} / confirmed claims: {N}
-- Verification breakdown: confirmed {N} / plausible {N} / disputed {N} / refuted {N} / unchecked {N}
-- Overall confidence: {one of the seven labels} ({band})
+{The answer to the decision in the brief, in 3-6 sentences, each fact with its ids [E3]. Name the
+evidence that carries it and the one observation that would change it.}
 
-## Answer to the decision
+## Findings
 
-<!-- The answer to the decision goes first, so that a sweep of detail
-     cannot dilute the subject. render_scaffold.py generates this section's skeleton and
-     report_auditor.py checks it as a required section. -->
+### {Heading from outline.md}
 
-- Answer: {one sentence answering the decision named in the brief's Purpose}[E#]
-- Recommendation: {one sentence on what to do}
-- Confidence: {label} ({band})
-- What would overturn this: {the fact or indicator that would change the conclusion}
+{Prose. Every sentence that states a fact ends with its ids. Opposing items sit under the heading
+they oppose, with why the values differ.}
 
-## Summary
+## Disagreements and limits
 
-<!-- Conclusion first, three to five sentences. Mark every fact with [E#]. Estimates take
-     a label from the confidence vocabulary. -->
+{Opposing evidence the Answer had to weigh; sub-questions with no passing evidence (gaps.json);
+self-reported or single-cluster figures; what the study could not reach.}
 
-{conclusion}[E1][E2]. {the grounds, summarised}[E3]. {the main counter-evidence or limit, in one clause}.
-
-## Conclusions per key question
-
-### KQ1: {…?}
-
-<!-- render_scaffold.py generates the ceiling line and the evidence table from
-     evidence_log.json. Do not rewrite them. The evidence column holds bare IDs (E1), so
-     that it does not count as a body citation the way [E1] does. -->
-
-- Confidence ceiling (computed): {label} ({band}); basis: {grounds}. The writer picks the final label.
-
-| Evidence | Claim | Grade | Corroboration | Verification |
-|---|---|---|---|---|
-| E1 | {the claim in one line} | A | corroborated | confirmed |
-
-**Conclusion**: {one or two sentences}[E#] (confidence: {label})
-
-- {a supporting fact}[E#]
-- {a supporting fact}[E#]
-- Conflicting: {if any}[E#]
-
-### KQ2: {…?}
-
-(same shape)
-
-## Analysis
-
-<!-- Write the Analysis before the Answer and the Summary. render_scaffold.py emits
-     only the blocks the Question type requires (labels.ANALYSIS_REQUIRED); the others
-     are left out, and the tables and bullets below are placeholders the writer edits
-     in place (no generated markers here, so --merge never touches this section once a
-     block's heading exists). report_auditor.py's R-ANALYSIS-EMPTY looks for a
-     substantive line with none of the {…} placeholder markup left in it. -->
-
-### Hypothesis matrix
-
-<!-- Required for diagnostic, evaluative, predictive. -->
-
-| Evidence | H1: {…} | H2: {…} | Diagnosticity |
-|---|---|---|---|
-| E# | + | − | high |
-
-<!-- + consistent / − inconsistent / 0 irrelevant. Diagnosticity is high when the
-     evidence is consistent with one hypothesis and inconsistent with another. -->
-
-- Non-diagnostic evidence: {E#, E#}
-- Hypothesis eliminated: {H#}, by {E#}
-- Surviving hypothesis: {H#}, on {n} diagnostic units
-
-### Mechanism
-
-<!-- Required for diagnostic, prescriptive. -->
-
-- Chain: {A}[E#] → {B}[E#] → {C}[E#]
-- Weakest link: {which arrow}
-- Unevidenced links: {which arrows rest on reasoning alone, or none}
-
-### Outside view
-
-<!-- Required for predictive. -->
-
-- Reference class: {the comparable cases this one belongs to}
-- Base rate: {the rate in that class}[E#]
-- Adjustment: {how far this case sits from the base rate, and why}[E#]
-- Result after adjustment: {the forecast, with its date and indicator}
-
-### Source incentives
-
-<!-- Required for every question type. -->
-
-| Evidence | Publisher | Who benefits if this figure is believed | self_reported | Corroborated by |
-|---|---|---|---|---|
-| {…} | {…} | {…} | {…} | {…} |
-
-### Second-order effects
-
-<!-- Required for prescriptive. -->
-
-| Action | First-order effect | Second-order effect | Who bears it | Evidence |
-|---|---|---|---|---|
-| {…} | {…} | {…} | {…} | {…} |
-
-### Premortem
-
-<!-- Required for prescriptive. -->
-
-- It is {as_of + 12 months} and the recommendation was followed and failed.
-- The three most likely causes: 1. {…} 2. {…} 3. {…}
-- Which of these the evidence cannot rule out: {…} ({what would rule it out})
-
-### Rival reading
-
-<!-- Required for every question type but descriptive. The lead reads rival.json and
-     writes this block; render_scaffold.py never reads rival.json itself. -->
-
-- Rival's answer: {rival.json answer, one sentence}
-- Reconciliation: {agree | differs}
-- Where it differs: {the specific point}
-- What would settle it: {the observation, which way it falls under each reading, the threshold}
-- Evidence the rival names as missing: {the items, and whether collection sought them}
-
-## Disconfirmation and conflicting evidence
-
-<!-- Its own section: everything that runs against the conclusion collects here.
-     render_scaffold.py transcribes the ledger's disconfirmation into the table between the
-     generated markers, and the audit does not judge that table. The writer's own reading
-     must appear outside the markers. -->
-
-<!-- generated:disconfirmation -->
-| Hypothesis | Observable if false | Queries run | Result | Effect on the hypothesis |
-|---|---|---|---|---|
-| {…} | {…} | {…} | {…} | {…} |
-<!-- /generated:disconfirmation -->
-
-- {the disconfirming fact or the opposing view}[E#]: {what it does to the conclusion}
-- Reading of the disconfirmation search: {how the table above moves the confidence}
-
-## Insight and implications
-
-<!-- Write an insight as evidence → warrant → conclusion. Leave out any insight you cannot
-     trace back that way. -->
-
-1. **{the insight}** (evidence: [E#][E#])
-   - Warrant: {why that evidence supports this conclusion}
-   - Confidence: {label} ({band})
-   - Evidence that lowers it: {if any}
-
-## Limitations and evidence gaps
-
-| Claim left uncorroborated | Queries tried | Further research suggested |
-|---|---|---|
-| {…} | {…} | {…} |
-
-<!-- render_scaffold.py generates the early-stop table from the ledger's floor_status.
-     An early stop means the rest was left unexamined, so state it as a limit. -->
-
-<!-- generated:early_stop -->
-| KQ | Role | Independent sources | Consecutive zero-new | Confidence | Note |
-|---|---|---|---|---|---|
-| {…} | {…} | {…} | {…} | {…} | {…} |
-<!-- /generated:early_stop -->
-
-- {other limits: the period covered, sources that could not be reached}
-
-## KQ coverage
-
-<!-- render_scaffold.py renders this table once from evidence_log.json (the Key evidence
-     and Verification columns) and leaves the Conclusion and Confidence columns as the
-     placeholders below for the writer to fill in place (no generated markers here, so
-     --merge never touches this table once its heading exists; it appends the table
-     whole only when the heading is missing). report_auditor.py's R-COVERAGE-PLACEHOLDER
-     warns on a row still carrying {one line} or {label}. -->
-
-| KQ | Conclusion | Confidence | Key evidence | Verification |
-|---|---|---|---|---|
-| KQ1 | {one line} | {label} | E1, E3 | confirmed |
-| KQ2 | {one line} | {label} | E5 | single_source |
-
-## Search log
-
-| Query | Tool | Adopted | Kind | KQ |
-|---|---|---|---|---|
-| {…} | WebSearch | 2 | normal | KQ1 |
-| {…} | WebSearch | 0 | counter | KQ2 |
-
-## Sources
-
-<!-- Every evidence unit's source. Full absolute URL, with the grade and the publication date. -->
-
-- [E1] {publisher}. {title}. {published}. grade {A}. {https://…}
-- [E2] …
+Sources, the gaps and the search log: `sources.md`.

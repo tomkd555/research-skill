@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """triage_sources.py - sort candidate URLs deterministically before fetching them.
 
-Used in research-team Step 2 (collection), between WebSearch and fetch_page.py. It does
+Used by the research-team collectors, between WebSearch and fetch_page.py. It does
 three things, all decidable from the URL alone.
 
 1. Group by registrable domain and assign a provisional origin_cluster
-   (collection_standards.md §5)
-2. Derive an expected source grade (grade_hint) from the domain (§4)
+   (one publisher is one origin)
+2. Derive an expected source grade (grade_hint) from the domain (the A/B/C grades in research-collector.md)
 3. Rank by that grade and drop the second and later URL of the same cluster from the fetch
-   list (§9)
+   list (one source per origin, as in research-collector.md)
 
 grade_hint is an expectation only. The grade that goes on an evidence unit is the
-collection agent's call after reading the page, following §4. This script only decides what
+collection agent's call after reading the page, following research-collector.md. This script only decides what
 to read first. The origin_cluster it assigns is provisional too; merging clusters across
 fragments belongs to the orchestrator.
 

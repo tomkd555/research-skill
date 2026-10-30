@@ -6,9 +6,11 @@ three things, all decidable from the URL alone.
 
 1. Group by registrable domain and assign a provisional origin_cluster
    (one publisher is one origin)
-2. Derive an expected source grade (grade_hint) from the domain (the A/B/C grades in research-collector.md)
+2. Derive an expected source grade (grade_hint) from the domain: A for governments,
+   international organisations and journals; B for industry bodies, research firms and
+   preprint servers; C for everything else
 3. Rank by that grade and drop the second and later URL of the same cluster from the fetch
-   list (one source per origin, as in research-collector.md)
+   list (a second page of one publisher adds no independent source)
 
 grade_hint is an expectation only. The grade that goes on an evidence unit is the
 collection agent's call after reading the page, following research-collector.md. This script only decides what
@@ -16,8 +18,8 @@ to read first. The origin_cluster it assigns is provisional too; merging cluster
 fragments belongs to the orchestrator.
 
 Examples:
-    python triage_sources.py --prefix KQ1 https://www.e-stat.go.jp/x https://example.com/blog
-    python triage_sources.py --prefix KQ2 --json --input candidates.txt
+    python triage_sources.py --prefix SQ1 https://www.e-stat.go.jp/x https://example.com/blog
+    python triage_sources.py --prefix SQ2 --json --input candidates.txt
 
 Exit codes: 0 = there is something to fetch / 1 = nothing to fetch (all duplicates, or no
 candidates) / 2 = usage error
@@ -41,23 +43,32 @@ MULTI_SUFFIX = {
 GRADE_A_SUFFIX = (".go.jp", ".lg.jp", ".ac.jp", ".gov", ".mil", ".edu", ".gov.uk", ".int")
 GRADE_A_DOMAIN = {
     "oecd.org", "worldbank.org", "imf.org", "who.int", "un.org", "europa.eu", "eurostat.ec.europa.eu",
-    "bis.org", "ilo.org", "unesco.org", "iea.org", "doi.org", "arxiv.org", "ncbi.nlm.nih.gov",
+    "bis.org", "ilo.org", "unesco.org", "iea.org", "doi.org", "ncbi.nlm.nih.gov",
     "pubmed.ncbi.nlm.nih.gov", "nature.com", "science.org", "sciencedirect.com", "springer.com",
     "link.springer.com", "wiley.com", "onlinelibrary.wiley.com", "tandfonline.com", "cell.com",
     "thelancet.com", "bmj.com", "nejm.org", "acm.org", "ieee.org", "jstage.jst.go.jp",
 }
-# Grade B: industry bodies, corporate IR, research firms, consulting firms
+# Grade B: industry bodies, corporate IR, research firms, consulting firms, preprint servers
 GRADE_B_SUFFIX = (".or.jp", ".gr.jp")
 GRADE_B_DOMAIN = {
     "gartner.com", "idc.com", "forrester.com", "statista.com", "mckinsey.com", "bcg.com",
     "bain.com", "deloitte.com", "pwc.com", "kpmg.com", "ey.com", "accenture.com",
     "nri.com", "mri.co.jp", "jri.co.jp", "dir.co.jp", "yano.co.jp", "fuji-keizai.co.jp",
     "idcjapan.co.jp", "impress.co.jp", "itr.co.jp",
+    "arxiv.org", "biorxiv.org", "ssrn.com",
 }
 # Paths on a corporate site that mark the publisher's own announcement or IR material (grade B)
 GRADE_B_PATH = re.compile(r"/(ir|investor|investors|press|news|newsroom|release|pdf/ir)(/|$)", re.I)
 
 GRADE_ORDER = {"A": 0, "B": 1, "C": 2}
+
+# Hosts where an account, named by the first path segment, is the publisher
+ACCOUNT_PATH_HOSTS = {"github.com", "gitlab.com", "medium.com", "note.com", "qiita.com", "zenn.dev",
+                      "dev.to", "huggingface.co"}
+# Domains that give each account its own subdomain
+ACCOUNT_SUBDOMAIN_DOMAINS = {"github.io", "substack.com", "blogspot.com", "wordpress.com",
+                             "hatenablog.com", "hatenablog.jp", "medium.com"}
+ARXIV_PATH_RE = re.compile(r"^/(?:abs|pdf)/([^/?#]+?)(?:v\d+)?(?:\.pdf)?/?$", re.I)
 
 
 def registrable_domain(url):
@@ -72,6 +83,26 @@ def registrable_domain(url):
     if ".".join(labels[-2:]) in MULTI_SUFFIX:
         return ".".join(labels[-3:])
     return ".".join(labels[-2:])
+
+
+def origin(url):
+    """Return the independence cluster of a URL: a paper by its arXiv id or DOI, a platform
+    account by its account, any other page by its registrable domain."""
+    parts = urllib.parse.urlsplit(url)
+    host = (parts.hostname or "").lower()
+    host = host[4:] if host.startswith("www.") else host
+    domain = registrable_domain(url)
+    m = ARXIV_PATH_RE.match(parts.path or "") if domain == "arxiv.org" else None
+    if m:
+        return "arxiv:" + m.group(1).lower()
+    if domain == "doi.org" and parts.path.strip("/"):
+        return "doi:" + urllib.parse.unquote(parts.path.strip("/")).lower()
+    if domain in ACCOUNT_SUBDOMAIN_DOMAINS and host != domain:
+        return host
+    segment = (parts.path or "").strip("/").split("/")[0]
+    if host in ACCOUNT_PATH_HOSTS and segment:
+        return f"{host}/{segment.lower()}"
+    return domain
 
 
 def grade_hint(url):
@@ -98,11 +129,12 @@ def triage(urls, prefix):
             rows.append({"url": url, "domain": "", "cluster": None, "grade_hint": "C",
                          "reason": "no host in the URL", "duplicate": True})
             continue
-        if domain not in clusters:
-            order.append(domain)
-            clusters[domain] = f"{prefix}-{len(order)}"
+        key = origin(url)
+        if key not in clusters:
+            order.append(key)
+            clusters[key] = f"{prefix}-{len(order)}"
         grade, reason = grade_hint(url)
-        rows.append({"url": url, "domain": domain, "cluster": clusters[domain],
+        rows.append({"url": url, "domain": domain, "cluster": clusters[key],
                      "grade_hint": grade, "reason": reason, "duplicate": False})
 
     seen_clusters = set()
@@ -135,7 +167,7 @@ def main():
         description="Rank candidate URLs before fetching and assign provisional origin_cluster")
     parser.add_argument("urls", nargs="*", help="candidate URLs")
     parser.add_argument("--prefix", required=True,
-                        help="prefix for the provisional origin_cluster (the assigned KQ, e.g. KQ1)")
+                        help="prefix for the provisional origin_cluster (the assigned SQ, e.g. SQ1)")
     parser.add_argument("--input", help="file of candidate URLs, one per line (# lines ignored)")
     parser.add_argument("--json", action="store_true", help="print JSON")
     args = parser.parse_args()

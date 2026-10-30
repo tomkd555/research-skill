@@ -1,10 +1,15 @@
 """measure_run.py - token use and wall time of research-team agents in one Claude Code session.
 
-Reads the session transcript and the subagent transcripts beside it
-(`~/.claude/projects/<project>/<session>.jsonl` and `<session>/subagents/*.jsonl`), keeps the
-agents whose type starts with `research-team:`, and sums the `usage` fields per role. A message
-is written as several transcript lines that repeat its id, so usage is counted once per id, taking
-the largest value seen for each field. Wall time is the span of a transcript's timestamps.
+Reads the subagent transcripts of a session (`<session>/subagents/*.jsonl` beside
+`~/.claude/projects/<project>/<session>.jsonl`; the session file itself is only located, not
+read), keeps the agents whose type starts with `research-team:`, and sums the `usage` fields per
+role. The main session's own usage is not measured; add it by hand, as eval/README.md says.
+A message is written as several transcript lines that repeat its id, so usage is counted once per
+id, taking the largest value seen for each field. Wall time is the span of a transcript's
+timestamps.
+
+One block is printed per research-team-lead: it holds the agents whose first timestamp falls
+inside that lead's span. Agents outside every lead's span form one more block.
 
 Examples:
     python eval/measure_run.py ~/.claude/projects/<project>/<session-id>.jsonl
@@ -46,18 +51,23 @@ def read_agent(path):
     usage = collections.Counter()
     for v in per_message.values():
         usage.update(v)
-    minutes = 0.0
-    if len(stamps) > 1:
+    minutes, t0, t1 = 0.0, None, None
+    if stamps:
         t0 = datetime.datetime.fromisoformat(stamps[0].replace("Z", "+00:00"))
         t1 = datetime.datetime.fromisoformat(stamps[-1].replace("Z", "+00:00"))
         minutes = (t1 - t0).total_seconds() / 60
-    return usage, len(per_message), tools, minutes
+    return usage, len(per_message), tools, minutes, t0, t1
+
+
+def new_roles():
+    return collections.defaultdict(lambda: {"agents": 0, "turns": 0, "minutes": 0.0,
+                                            "usage": collections.Counter(),
+                                            "tools": collections.Counter()})
 
 
 def measure(session):
-    roles = collections.defaultdict(lambda: {"agents": 0, "turns": 0, "minutes": 0.0,
-                                             "usage": collections.Counter(),
-                                             "tools": collections.Counter()})
+    """Return one roles table per research-team-lead, then one for agents outside every lead."""
+    agents = []
     for path in glob.glob(os.path.join(session[:-len(".jsonl")], "subagents", "*.jsonl")):
         meta = path[:-len(".jsonl")] + ".meta.json"
         kind = "?"
@@ -66,25 +76,25 @@ def measure(session):
                 kind = json.load(fh).get("agentType", "?")
         if not kind.startswith("research-team:"):
             continue
-        usage, turns, tools, minutes = read_agent(path)
-        r = roles[kind.split(":", 1)[1]]
+        agents.append((kind.split(":", 1)[1],) + read_agent(path))
+    leads = sorted((a for a in agents if a[0] == "research-team-lead" and a[5]), key=lambda a: a[5])
+    runs = [(a[5].strftime("%H:%M"), new_roles()) for a in leads] + [("no lead", new_roles())]
+    for role, usage, turns, tools, minutes, t0, t1 in agents:
+        slot = len(leads)
+        for i, lead in enumerate(leads):
+            if t0 and lead[5] <= t0 <= lead[6]:
+                slot = i
+                break
+        r = runs[slot][1][role]
         r["agents"] += 1
         r["turns"] += turns
         r["minutes"] = max(r["minutes"], minutes)  # the slowest agent of a role sets the wait
         r["usage"].update(usage)
         r["tools"].update(tools)
-    return roles
+    return [(name, roles) for name, roles in runs if roles]
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("session", help="path to the session .jsonl")
-    ap.add_argument("--json", action="store_true")
-    args = ap.parse_args()
-    if not os.path.exists(args.session):
-        print(f"no such file: {args.session}", file=sys.stderr)
-        return 2
-    roles = measure(args.session)
+def summarise(roles):
     rows, total_in, total_out = [], 0, 0
     for role, r in sorted(roles.items()):
         u = r["usage"]
@@ -95,14 +105,32 @@ def main():
                      "input_tokens": inp, "cache_write": u["cache_creation_input_tokens"],
                      "output_tokens": u["output_tokens"], "slowest_minutes": round(r["minutes"], 1),
                      "web_search": r["tools"]["WebSearch"], "web_fetch": r["tools"]["WebFetch"]})
+    return rows, total_in, total_out
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("session", help="path to the session .jsonl")
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args()
+    if not os.path.exists(args.session):
+        print(f"no such file: {args.session}", file=sys.stderr)
+        return 2
+    runs = []
+    for name, roles in measure(args.session):
+        rows, total_in, total_out = summarise(roles)
+        runs.append({"run": name, "roles": rows, "input_tokens": total_in, "output_tokens": total_out})
     if args.json:
-        print(json.dumps({"roles": rows, "input_tokens": total_in, "output_tokens": total_out}, indent=2))
+        print(json.dumps({"runs": runs}, indent=2))
         return 0
-    for row in rows:
-        print(f"{row['role']:20s} agents={row['agents']:2d} turns={row['turns']:4d} "
-              f"input={row['input_tokens'] / 1e6:6.2f}M output={row['output_tokens'] / 1e3:6.1f}k "
-              f"slowest={row['slowest_minutes']:5.1f}min WS={row['web_search']} WF={row['web_fetch']}")
-    print(f"TOTAL input={total_in / 1e6:.1f}M output={total_out / 1e3:.0f}k")
+    for run in runs:
+        print(f"== run {run['run']} (lead start, UTC)" if run["run"] != "no lead"
+              else "== agents outside any lead")
+        for row in run["roles"]:
+            print(f"{row['role']:20s} agents={row['agents']:2d} turns={row['turns']:4d} "
+                  f"input={row['input_tokens'] / 1e6:6.2f}M output={row['output_tokens'] / 1e3:6.1f}k "
+                  f"slowest={row['slowest_minutes']:5.1f}min WS={row['web_search']} WF={row['web_fetch']}")
+        print(f"TOTAL input={run['input_tokens'] / 1e6:.1f}M output={run['output_tokens'] / 1e3:.0f}k")
     return 0
 
 

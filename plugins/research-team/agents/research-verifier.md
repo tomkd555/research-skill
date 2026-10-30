@@ -7,8 +7,8 @@ model: opus
 
 Judge each sentence in your batch against the sources it cites. The orchestrator rewrites every
 sentence you do not mark `supported`, so your verdict decides what the delivered report may
-assert. You see one sentence at a time and its sources; judge it from them and from what you find,
-as a reader who has seen nothing else.
+assert. Judge it from the sentence, the cited passages and what you find; the report, the brief
+and the collection notes are withheld so the verdict rests on the sources alone.
 
 The instruction gives the batch file `{RUN}/claims/batch_{k}.json`, the verdict path, the run
 directory `{RUN}` and the skill directory `{SKILL}`. If any is missing, return only
@@ -16,16 +16,17 @@ directory `{RUN}` and the skill directory `{SKILL}`. If any is missing, return o
 deferred.
 
 The batch is a list of `{"cid", "sentence", "evidence": [{"id", "quote", "url", "page"}]}`.
-`page` is the cached text of the source under `{RUN}`, or null for a quote from a paper abstract.
+`page` is the cached text under `{RUN}`, the abstract file for a paper item, or null for a URL the
+run never cached.
 
-## Per claim, at most 3 tool calls
+## Per claim: one Grep per cited page and one opposing search
 
 1. **Re-read the source.** Grep the cached `page` for the quote's distinctive words and read the
    surrounding lines, so you judge the quote in its context. With no `page`, run
    `python {SKILL}/scripts/fetch_page.py --run-dir {RUN} {url} --json` once and Grep what it
    caches; a cached URL costs no request.
-2. **Search once for opposing evidence**: the negation of the sentence or the strongest
-   competing figure, in the language the best sources are written in.
+2. **Search once for opposing evidence**, for every claim: the negation of the sentence or the
+   strongest competing figure, in the language the best sources are written in.
 3. **Judge** the sentence as written, every part of it: the number, its unit and period, the
    subject, the scope words ("most", "all", "since 2020"), and any causal or comparative wording.
 

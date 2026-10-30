@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """apply_verdicts.py - merge the verifiers' verdicts and build the patch list (research-team 2.0).
 
-Used in research-team Step 4, after every verifier has written claims/verdicts_{k}.json.
+Used in research-team Step 5.5, after every verifier has written claims/verdicts_{k}.json.
 Standard library only, no network.
 
 Example:
@@ -9,10 +9,11 @@ Example:
 
 Reads every claims/batch_*.json and claims/verdicts_*.json and writes verdicts.json:
     {"verdicts": [{"cid", "sentence", "evidence_ids", "verdict", "reason", "found", "source"}],
-     "patch": [{"cid", "sentence", "verdict", "action"}]}
-A batch claim with no verdict, a verdict for an unknown cid, a duplicate cid or an unknown
-verdict value is an error: the errors are listed and nothing is written. Prints the counts
-per verdict and one line per patch.
+     "patch": [{"cid", "sentence", "verdict", "action", "reason", "found", "source"}]}
+A batch claim with no verdict, a verdict for an unknown cid, a duplicate cid, an unknown
+verdict value or an entry that is not a JSON object is an error: the errors are listed and
+nothing is written. Prints the counts per verdict and, per patch, the whole sentence, the
+reason and the found passage.
 
 Exit codes: 0 = written / 1 = errors in the verdicts / 2 = usage or I/O error
 """
@@ -41,14 +42,23 @@ def _configure_stdout():
 
 
 def load_all(pattern):
-    rows = []
+    """Return ([(file name, object)], [error]) for every file matching pattern."""
+    rows, bad = [], []
     for path in sorted(glob.glob(pattern)):
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{path}: {exc}")
         if not isinstance(data, list):
             raise ValueError(f"{path}: expected a JSON list")
-        rows += data
-    return rows
+        name = os.path.basename(path)
+        for n, item in enumerate(data, 1):
+            if isinstance(item, dict):
+                rows.append((name, item))
+            else:
+                bad.append(f"{name}: item {n} is not a JSON object")
+    return rows, bad
 
 
 def main():
@@ -58,15 +68,19 @@ def main():
     args = ap.parse_args()
     claims_dir = os.path.join(args.run_dir, "claims")
     try:
-        claims = load_all(os.path.join(claims_dir, "batch_*.json"))
-        given = load_all(os.path.join(claims_dir, "verdicts_*.json"))
+        claim_rows, claim_bad = load_all(os.path.join(claims_dir, "batch_*.json"))
+        given_rows, given_bad = load_all(os.path.join(claims_dir, "verdicts_*.json"))
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
+    claims = [c for _, c in claim_rows]
+    batch_of = {c["cid"]: name for name, c in claim_rows}
+    given = [v for _, v in given_rows]
     by_cid = {c["cid"]: c for c in claims}
-    errors, seen = [f"{cid}: appears in more than one batch" for cid, n in
-                    collections.Counter(c["cid"] for c in claims).items() if n > 1], {}
+    errors, seen = claim_bad + given_bad + [
+        f"{cid}: appears in more than one batch" for cid, n in
+        collections.Counter(c["cid"] for c in claims).items() if n > 1], {}
     for v in given:
         cid = v.get("cid")
         if cid not in by_cid:
@@ -77,7 +91,7 @@ def main():
             errors.append(f"{cid}: unknown verdict value {v.get('verdict')!r}")
         else:
             seen[cid] = v
-    errors += [f"{cid}: no verdict" for cid in by_cid if cid not in seen
+    errors += [f"{cid}: no verdict (claim in {batch_of[cid]})" for cid in by_cid if cid not in seen
                and not any(v.get("cid") == cid for v in given)]
     if errors:
         print("\n".join(errors))
@@ -92,7 +106,8 @@ def main():
                          "found": v.get("found", ""), "source": v.get("source", "")})
         if v["verdict"] != "supported":
             patch.append({"cid": c["cid"], "sentence": c["sentence"], "verdict": v["verdict"],
-                          "action": ACTIONS[v["verdict"]]})
+                          "action": ACTIONS[v["verdict"]], "reason": v.get("reason", ""),
+                          "found": v.get("found", ""), "source": v.get("source", "")})
     try:
         with open(os.path.join(args.run_dir, "verdicts.json"), "w", encoding="utf-8") as f:
             json.dump({"verdicts": verdicts, "patch": patch}, f, ensure_ascii=False, indent=2)
@@ -101,7 +116,10 @@ def main():
         return 2
     print(", ".join(f"{n} {sum(1 for v in verdicts if v['verdict'] == n)}" for n in VERDICTS))
     for p in patch:
-        print(f"{p['cid']} {p['verdict']}: {p['action']}: {p['sentence'][:100]}")
+        print(f"{p['cid']} {p['verdict']}: {p['action']}")
+        print(f"  sentence: {p['sentence']}")
+        print(f"  reason: {p['reason']}")
+        print(f"  found: {p['found']}")
     return 0
 
 

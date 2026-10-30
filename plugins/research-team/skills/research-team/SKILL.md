@@ -55,6 +55,7 @@ If the lead returns `{"error": "the Agent tool is unavailable"}`, run procedure.
 |---|---|---|
 | research-team-lead | opus | runs procedure.md when the session is on another model than Fable |
 | research-collector | sonnet, effort medium | one sub-question, one source type, a fixed tool budget; writes JSONL |
+| research-screener | sonnet, effort medium | every report sentence against its cited quotes, one batch of 40; labels drift, uncited facts and readings under a source marker |
 | research-verifier | opus | up to five report sentences against their cited sources, without the report |
 
 Pass `model` on every launch; never `fable`.
@@ -67,7 +68,7 @@ Pass `model` on every launch; never `fable`.
 | `report.md` | the English report; every factual sentence cites `[E#]` |
 | `report.{lang}.md` | the translation, when the request was not in English |
 | `sources.md` | each cited source with its check result, the gaps, the search log |
-| `evidence.jsonl`, `verdicts.json`, `pages/` | the evidence, the verification and the cached pages behind them |
+| `evidence.jsonl`, `screen.json`, `verdicts.json`, `pages/` | the evidence, the screen, the verification and the cached pages behind them |
 
 The literature-review skill ships beside this one; the collector's academic route calls its
 `paper_search.py`.

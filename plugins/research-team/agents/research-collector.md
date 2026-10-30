@@ -54,11 +54,11 @@ deferred.
 3. Find the passage with Grep on the cached file and copy the quote from inside one line of it.
    A quote is one contiguous passage of at most about 40 words, in the source's language. Never
    join passages with `...`; two passages make two items.
-4. Only for a page the fetch reports as `unsupported`, `thin` or `unreachable`: open a thin PDF
-   with Read, or use WebFetch with the prompt "Extract at most 5 passages bearing on: {SQ}, each
-   40 words or fewer, worded exactly as the page words them. No summary or comment." An item
-   from WebFetch fails the quote check unless its page is also in the cache, so prefer another
-   source.
+4. For a page the fetch reports as `unsupported`, `thin`, `unreadable` or `unreachable`, find
+   another copy or another source and quote from a cached page. WebFetch with the prompt "Extract
+   at most 5 passages bearing on: {SQ}, each 40 words or fewer, worded exactly as the page words
+   them. No summary or comment." only judges whether such a search is worth it; its items fail
+   the quote check.
 
 ## Academic route (`source: academic`)
 
@@ -70,12 +70,14 @@ deferred.
   Quote from the abstract and set `paper` to that db id; set `doi` or `arxiv_id` and use the DOI
   or arXiv URL as `url`. A quote from open-access full text instead goes through `fetch_page.py`
   like a web page, with `paper` null.
+- Read the `failed sources:` line each search prints. When arXiv failed, search
+  `site:arxiv.org` with WebSearch.
 - Prefer peer-reviewed work, systematic reviews and meta-analyses; check the venue and the
   citation count before relying on a paper.
 
 ## The evidence item
 
-Write one JSON object per line to the evidence path:
+Write one JSON object per line to the evidence path with the Write tool:
 
 | Field | Content |
 |---|---|
@@ -85,7 +87,7 @@ Write one JSON object per line to the evidence path:
 | `url`, `title`, `publisher` | full absolute URL (or the printed `file://` URL), page title, publisher |
 | `date` | publication date as the page states it: `YYYY-MM-DD`, `YYYY-MM`, `YYYY`, or `unknown` |
 | `grade` | `A` government, international body, peer-reviewed paper; `B` industry body, corporate IR, research firm, preprint; `C` trade media, reporting, blog. Grade by the origin |
-| `cluster` | the origin's registrable domain; reprints of one press release share the origin's value |
+| `cluster` | the origin: a paper's DOI or arXiv id (check.py sets it from `doi` or `arxiv_id`, so set those on a mirror or PDF copy too); on github.com, medium.com and similar hosts, the account (`github.com/acme`, `acme.github.io`); otherwise the registrable domain. Reprints of one press release share the origin's value |
 | `stance` | `supports`, `opposes` or `context`, relative to the sub-question |
 | `kind` | `fact`, `figure` or `estimate` |
 | `doi`, `arxiv_id`, `paper` | where they apply, else null |
@@ -94,7 +96,7 @@ A figure published by the party that gains from it says so in the claim ("self-r
 vendor"). A document the user supplied says "user-supplied". Data older than three years, or
 older than twelve months on a fast-moving subject, says its date in the claim.
 
-Write one line per search call to the searches path:
+Write one line per search call to the searches path with the Write tool:
 `{"query": "...", "purpose": "search" | "disconfirm", "results": 8, "new_sources": 3}`.
 
 Nobody can answer a question during your run. Keep working until both files are written and the
@@ -111,4 +113,4 @@ Only: the two file paths, then a summary of at most 300 tokens in English: one s
 answering the sub-question, up to three key figures with their item numbers, conflicts between
 sources, what you searched for and did not find, and the budget used.
 
-Bash is for this skill's scripts only.
+Bash is for this skill's scripts only; keep each command under 7,000 characters.

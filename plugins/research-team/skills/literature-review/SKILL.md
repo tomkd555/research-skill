@@ -2,7 +2,7 @@
 name: literature-review
 description: >-
   Academic literature review. Searches OpenAlex / arXiv / PubMed / Semantic Scholar through one
-  deterministic script, ranks papers by venue and citation count, and builds an evidence table
+  deterministic script, ranks papers by citation count and year, and builds an evidence table
   whose quotes are provably taken from the source abstracts. Two modes: survey (10-20 papers
   from abstracts, one context) and deep (full text of a handful of papers). Use it for requests
   such as "find the papers on this", "survey the literature", "go through the prior work",
@@ -188,8 +188,8 @@ leaving things out; never compress it into fragments, abbreviations or arrow cha
 
 ## Non-negotiable
 
-- Every cited paper has a resolved DOI or arXiv ID. The script guarantees this; do not add papers
-  to `evidence.json` by hand.
+- The script grades a record without a DOI or arXiv id as C and keeps it. Do not add papers to
+  `evidence.json` by hand.
 - The disconfirmation query runs and you record its result, including when it found nothing.
 - Mark preprints as not peer-reviewed at every citation.
 - Papers the search did not return do not enter the report, however well you remember them.

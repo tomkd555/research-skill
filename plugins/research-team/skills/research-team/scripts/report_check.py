@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """report_check.py - check report.md and write sources.md (research-team 2.0).
 
-Used in research-team Step 5 (the machine check before the report is delivered) and again
-after the translation is written. Standard library only, no network. The sentence splitter and
-the marker parser defined here are shared with select_claims.py.
+Used in research-team Step 4 (before claims are selected), Step 6.3 (the machine check before
+the report is delivered) and Step 7 (again after the translation is written). Standard library
+only, no network. The sentence splitter and the marker parser defined here are shared with
+select_claims.py.
 
 Examples:
     python report_check.py --run-dir research/20261024-topic
@@ -12,8 +13,10 @@ Examples:
 Checks on report.md (one line per failure):
     1. the headings "## Answer", "## Findings", "## Disagreements and limits" exist
     2. every marker id exists in evidence.jsonl with status pass or warn
-    3. every sentence with a digit in Answer and Findings carries a marker
-    4. no sentence in verdicts.json "patch" remains verbatim (skipped without verdicts.json)
+    3. no sentence in verdicts.json "patch" remains verbatim
+    4. every bracket that starts like a marker parses as one
+    5. verdicts.json exists when claims/batch_*.json exist ("verification incomplete")
+A sentence is a run of a paragraph up to its stop, a list item or a table row.
 Then sources.md: the cited items, the uncited passing items, gaps.json and the search log.
 --translation FILE compares FILE with report.md: marker sequence, multiset of numbers and the
 count of lines starting with "#".
@@ -33,7 +36,10 @@ REQUIRED_HEADINGS = ["## Answer", "## Findings", "## Disagreements and limits"]
 MARKER = r"\[E\d+(?:\s*,\s*E\d+)*\]"
 MARKER_RE = re.compile(MARKER)
 TRAIL_RE = re.compile(r"(?:\s*" + MARKER + r")+")
-END_RE = re.compile(r"[.?!。](?=\s|$|\[E\d)")
+# closing quotes and brackets after the stop belong to the sentence they close
+END_RE = re.compile(r"[.?!。][\"'”’)\]]*(?=\s|$|\[E\d)")
+TABLE_SEP_RE = re.compile(r"^\s*\|[\s:|-]+$")
+BRACKET_RE = re.compile(r"\[\s*[Ee]\d[^\]]*\]")
 ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 NUMBER_RE = re.compile(r"[0-9][0-9,.]*")
 ABBREVIATIONS = {"vs", "e.g", "i.e", "etc", "approx", "cf", "al", "inc", "ltd", "co", "no", "fig",
@@ -56,6 +62,10 @@ def is_abbreviation(text, i):
         return False
     m = re.search(r"([A-Za-z][A-Za-z.]*)$", text[:i])
     word = m.group(1) if m else ""
+    if word.lower() == "no":  # "No. 5" is a number sign; "said no." ends the sentence
+        return bool(re.match(r"\s*\d", text[i + 1:]))
+    if word.lower() == "ms" and re.search(r"\d\s*ms$", text[:i]):  # "200 ms." is a unit
+        return False
     return word.lower() in ABBREVIATIONS or bool(INITIALS_RE.match(word))
 
 
@@ -82,8 +92,9 @@ def split_sentences(text):
 def report_sentences(text):
     """Yield (h2 heading or None, sentence) for every sentence outside the headings.
 
-    A paragraph is a run of plain lines, a list item is one unit, so each list item is a
-    sentence boundary.
+    A paragraph is a run of plain lines, a list item or a table row is one unit, so each is a
+    sentence boundary; a table's separator row, and its header row unless it carries a marker,
+    are skipped.
     """
     section, buf = None, []
 
@@ -94,13 +105,29 @@ def report_sentences(text):
             return [(section, s) for s in split_sentences(unit)]
         return []
 
-    for line in text.splitlines():
+    lines = text.splitlines()
+
+    def is_row(k):
+        return 0 <= k < len(lines) and lines[k].lstrip().startswith("|")
+
+    def is_header(k):  # the first row of a table, when a separator row follows it
+        return is_row(k) and not is_row(k - 1) and k + 1 < len(lines) \
+            and bool(TABLE_SEP_RE.match(lines[k + 1]))
+
+    for k, line in enumerate(lines):
         if line.startswith("#"):
             yield from flush()
             if line.startswith("## "):
                 section = line.strip()
         elif not line.strip():
             yield from flush()
+        elif line.lstrip().startswith("|"):
+            yield from flush()
+            # a header row is checked only when it carries a marker
+            skip = is_header(k - 1) or (is_header(k) and not MARKER_RE.search(line))
+            if not skip:
+                buf.append(line)
+                yield from flush()
         elif ITEM_RE.match(line):
             yield from flush()
             buf.append(ITEM_RE.sub("", line, count=1))
@@ -143,10 +170,9 @@ def check_report(text, status_of, patch):
         for i in marker_ids(s):
             if status_of.get(i) not in ("pass", "warn"):
                 failures.append(f"dangling marker {i} in: {s[:100]}")
-    for section, s in report_sentences(text):
-        if section in ("## Answer", "## Findings") and has_digit_outside_marker(s) \
-                and not MARKER_RE.search(s):
-            failures.append(f"uncited number in {section[3:]}: {s[:100]}")
+    for token in BRACKET_RE.findall(text):
+        if not MARKER_RE.fullmatch(token):
+            failures.append(f"malformed marker: {token}")
     flat = squash(text)
     for p in patch:
         if squash(p["sentence"]) in flat:
@@ -227,6 +253,8 @@ def main():
                 translation = f.read()
         status_of = {e["id"]: e["check"]["status"] for e in evidence}
         failures = check_report(report, status_of, patch)
+        if glob.glob(os.path.join(args.run_dir, "claims", "batch_*.json")) and not os.path.exists(vpath):
+            failures.append("verification incomplete: claims/batch_*.json exist but verdicts.json does not")
         if translation is not None:
             failures += check_translation(report, translation)
         cited = set(marker_ids(report))

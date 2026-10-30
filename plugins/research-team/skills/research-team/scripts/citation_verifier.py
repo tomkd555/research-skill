@@ -50,7 +50,11 @@ import urllib.request
 USER_AGENT = "research-team-citation-verifier/1.0 (stdlib urllib; research-team skill)"
 DEFAULT_TIMEOUT = 15.0
 MAX_BODY_BYTES = 2_000_000  # cap the body fetched, still far more than a quote match needs
+PDF_MAX_BYTES = 50_000_000  # a PDF is read whole, because pypdf cannot parse a cut file
+WHOLE_TYPES = {"application/pdf", "application/zip",
+               "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
 REQUEST_INTERVAL = (0.5, 1.0)  # minimum interval in seconds, per host, out of respect for robots
+HOST_MIN_INTERVAL = {"export.arxiv.org": 3.0}  # the spacing the arXiv API terms of use state
 QUOTE_MATCH_RATIO = 0.9
 DEFAULT_WORKERS = 8   # default parallelism; HostThrottle keeps the per-host interval
 MAX_WORKERS = 16      # beyond this the interval on shared API hosts sets the ceiling anyway
@@ -144,13 +148,28 @@ def normalize_text(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
+def strip_cache_header(text):
+    """The page body of a fetch_page.py cache file: the text after its `# url:` header block."""
+    return text.split("\n\n", 1)[-1] if text.startswith("# url:") else text
+
+
 def cache_name(url):
     """The page-cache file name for a URL (also used by fetch_page.py, which imports this)."""
     return hashlib.sha1(url.encode("utf-8")).hexdigest()[:16] + ".txt"
 
 
+BLOCK_TAGS = frozenset((
+    "p", "div", "br", "li", "ul", "ol", "tr", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6",
+    "section", "article", "header", "footer", "table", "blockquote", "pre",
+    "title", "nav", "main", "aside", "dl", "dt", "dd", "figure", "figcaption", "form"))
+
+
 class _TextExtractor(html.parser.HTMLParser):
-    """Extract the visible text of an HTML page, dropping tags, script and style."""
+    """Extract the visible text of an HTML page, dropping tags, script and style.
+
+    Text inside inline elements joins its neighbours with no separator; a block-level tag
+    puts one space, so a word or a Japanese sentence split by <strong> or <a> stays whole.
+    """
 
     def __init__(self):
         super().__init__()
@@ -160,20 +179,31 @@ class _TextExtractor(html.parser.HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in ("script", "style"):
             self._skip_depth += 1
+        elif tag in BLOCK_TAGS and self._skip_depth == 0:
+            self._parts.append(" ")
 
     def handle_endtag(self, tag):
         if tag in ("script", "style") and self._skip_depth > 0:
             self._skip_depth -= 1
+        elif tag in BLOCK_TAGS and self._skip_depth == 0:
+            self._parts.append(" ")
 
     def handle_data(self, data):
         if self._skip_depth == 0:
             self._parts.append(data)
 
     def get_text(self):
-        return " ".join(self._parts)
+        return "".join(self._parts)
 
 
 META_CHARSET = re.compile(rb"""<meta[^>]+charset\s*=\s*["']?\s*([A-Za-z0-9_\-]+)""", re.I)
+
+
+# Python's shift_jis and euc-jp are strict JIS X 0208/0212 codecs; pages written with the
+# Windows and JIS X 0213 extensions need their supersets.
+CHARSET_ALIASES = {"shift_jis": "cp932", "shift-jis": "cp932", "sjis": "cp932", "x-sjis": "cp932",
+                   "ms_kanji": "cp932", "windows-31j": "cp932", "euc-jp": "euc_jis_2004",
+                   "eucjp": "euc_jis_2004", "x-euc-jp": "euc_jis_2004"}
 
 
 def decode_body(body_bytes, encoding_hint=None):
@@ -186,10 +216,10 @@ def decode_body(body_bytes, encoding_hint=None):
         if not enc:
             continue
         try:
-            return body_bytes.decode(enc, errors="replace")
+            return body_bytes.decode(CHARSET_ALIASES.get(enc.lower(), enc), errors="replace")
         except LookupError:
             continue
-    for enc in ("utf-8", "cp932", "euc-jp"):
+    for enc in ("utf-8", "cp932", "euc_jis_2004"):
         try:
             return body_bytes.decode(enc)
         except UnicodeDecodeError:
@@ -237,28 +267,75 @@ class HostThrottle:
         with self._guard:
             now = time.monotonic()
             start = max(now, self._next_free.get(host, now))
-            self._next_free[host] = start + self._rand.uniform(*self._interval)
+            # an interval of (0, 0) switches throttling off, so it drops the host floor too
+            floor = HOST_MIN_INTERVAL.get(host, 0.0) if self._interval[1] > 0 else 0.0
+            gap = max(self._rand.uniform(*self._interval), floor)
+            self._next_free[host] = start + gap
         wait = start - time.monotonic()
         if wait > 0:
             time.sleep(wait)
         yield
 
 
-def http_request(url, timeout, method="GET", throttle=None):
-    """Send a GET or HEAD. Returns (status, body, encoding, error) and never raises."""
+def _read_capped(resp, timeout, max_bytes, pdf_max_bytes):
+    """Read the body in chunks up to the cap (the document cap for a PDF or a zip such as DOCX).
+
+    Returns (body, truncated). A PDF or zip is known by its Content-Type or its first bytes;
+    neither parses when cut. The read stops with TimeoutError once the whole request has run
+    past twice `timeout` (eight times under the larger document cap), because the socket
+    timeout alone restarts on every chunk.
+    """
+    start = time.monotonic()
+    whole = resp.headers.get_content_type() in WHOLE_TYPES
+    chunks, size, cap, factor = [], 0, None, 2
+    while True:
+        chunk = resp.read1(65536)
+        if not chunk:
+            return b"".join(chunks), False
+        chunks.append(chunk)
+        size += len(chunk)
+        if cap is None and size >= 5:
+            head = b"".join(chunks)[:5]
+            whole = whole or head == b"%PDF-" or head[:2] == b"PK"
+            cap = pdf_max_bytes if whole else max_bytes
+            factor = 8 if cap > max_bytes else 2
+        if cap is not None and size >= cap:
+            body = b"".join(chunks)
+            return body[:cap], len(body) > cap or bool(resp.read1(1))
+        if time.monotonic() > start + factor * timeout:
+            raise TimeoutError(f"timed out: the response took more than {factor} times the timeout")
+
+
+def http_fetch(url, timeout, method="GET", throttle=None, max_bytes=None, pdf_max_bytes=None):
+    """Send a GET or HEAD. Returns (status, body, headers, error, truncated); never raises.
+
+    The size cap is chosen per call: `max_bytes` (MAX_BODY_BYTES by default) for a page,
+    `pdf_max_bytes` (PDF_MAX_BYTES by default) when the body is a PDF. `truncated` is True
+    when the cap cut the body.
+    """
+    max_bytes = MAX_BODY_BYTES if max_bytes is None else max_bytes
+    pdf_max_bytes = PDF_MAX_BYTES if pdf_max_bytes is None else pdf_max_bytes
     req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})
     ctx = throttle.slot(url) if throttle is not None else contextlib.nullcontext()
     try:
         with ctx, urllib.request.urlopen(req, timeout=timeout) as resp:
             status = resp.getcode()
-            body = resp.read(MAX_BODY_BYTES) if method == "GET" else b""
-            ctype = resp.headers.get_content_charset()
-            return status, body, ctype, None
+            body, truncated = (_read_capped(resp, timeout, max_bytes, pdf_max_bytes)
+                               if method == "GET" else (b"", False))
+            return status, body, resp.headers, None, truncated
     except urllib.error.HTTPError as e:
-        return e.code, None, None, str(e)
+        return e.code, None, None, str(e), False
     except Exception as e:
         # Record network failures (timeout, URLError, ConnectionError) and carry on
-        return None, None, None, str(e)
+        return None, None, None, str(e), False
+
+
+def http_request(url, timeout, method="GET", throttle=None):
+    """Send a GET or HEAD. Returns (status, body, encoding, error) and never raises."""
+    # a PDF keeps the page cap here: callers match text and never parse the PDF
+    status, body, headers, err, _ = http_fetch(url, timeout, method, throttle,
+                                               pdf_max_bytes=MAX_BODY_BYTES)
+    return status, body, headers.get_content_charset() if headers is not None else None, err
 
 
 def check_url_reachability(url, timeout, need_body, throttle=None):
@@ -340,10 +417,11 @@ def check_doi(doi, timeout, throttle=None):
 def check_arxiv(arxiv_id, timeout, throttle=None):
     """Resolve an arXiv ID through export.arxiv.org, falling back to the abstract page.
 
-    Returns (status, detail); status is resolved, not_found or error. export.arxiv.org's
-    API answered every request tried in this environment with HTTP 406, so an API
-    failure falls back to a HEAD, then a GET, on https://arxiv.org/abs/{id}: 200 counts
-    as resolved, 404 as not_found. The API stays the first attempt.
+    Returns (status, detail); status is resolved, not_found or error. HostThrottle keeps 3
+    seconds between requests to export.arxiv.org, the spacing the arXiv API terms state; an
+    API failure (HTTP 429 under load) falls back to a HEAD, then a GET, on
+    https://arxiv.org/abs/{id}: 200 counts as resolved, 404 as not_found. The API stays
+    the first attempt.
     """
     api = "http://export.arxiv.org/api/query?id_list=" + urllib.parse.quote(arxiv_id, safe="")
     api_status, body, _, api_err = http_request(api, timeout, method="GET", throttle=throttle)
@@ -453,7 +531,7 @@ def verify_one(e, timeout, offline, throttle=None, pages_dir=None):
         cache_path = os.path.join(pages_dir or "", cache_name(url))
         if os.path.exists(cache_path):
             with open(cache_path, encoding="utf-8") as f:
-                body_text = f.read()
+                body_text = strip_cache_header(f.read())
             url_status, truncated, detail = "local", False, f"read from the page cache: {cache_path}"
         else:
             url_status, body_text, truncated, detail = "unreachable", None, False, \
@@ -510,7 +588,7 @@ def verify_one(e, timeout, offline, throttle=None, pages_dir=None):
             cache_path = os.path.join(pages_dir, cache_name(url))
             if os.path.exists(cache_path):
                 with open(cache_path, encoding="utf-8") as f:
-                    cached_text = f.read()
+                    cached_text = strip_cache_header(f.read())
                 cached_match, cached_detail = check_quote_match(quote, cached_text)
                 if cached_match == "found":
                     quote_match = "found_cached"

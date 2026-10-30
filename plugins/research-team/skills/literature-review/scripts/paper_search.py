@@ -12,7 +12,9 @@ Standard library only. Uses the network.
     python paper_search.py show --db papers.json P1 P3
     python paper_search.py check --db papers.json --evidence evidence.json
 
-Exit codes: 0 = ok / 1 = check failed / 2 = usage or I/O error.
+Exit codes: 0 = ok / 1 = check failed / 2 = usage or I/O error, or every source failed in a
+search (the db is then left as it was). arXiv requests run one at a time, 3 s apart, and honour
+Retry-After. Each search prints a "failed sources:" line on stdout.
 """
 
 import argparse
@@ -21,6 +23,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -35,6 +38,8 @@ UA = "literature-review/1.0 (+https://github.com/tomkd555/research-skill)"
 if MAILTO:
     UA += " (mailto:%s)" % MAILTO
 TIMEOUT = 30
+ARXIV_GAP = 3.0  # arXiv's API terms: one request every three seconds, one connection
+RETRY_AFTER_CAP = 30
 SOURCES = ("openalex", "arxiv", "pubmed", "semanticscholar")
 DEFAULT_SOURCES = ("openalex", "arxiv")
 
@@ -50,7 +55,12 @@ def _get(url, retries=3):
                 return resp.read()
         except urllib.error.HTTPError as exc:
             if exc.code in (429, 500, 502, 503, 504) and attempt < retries - 1:
-                time.sleep(2 ** attempt)
+                wait = 2 ** attempt
+                if exc.code in (429, 503):
+                    header = (exc.headers.get("Retry-After") if exc.headers else "") or ""
+                    if header.strip().isdigit():
+                        wait = min(int(header), RETRY_AFTER_CAP)
+                time.sleep(wait)
                 continue
             raise
         except Exception:
@@ -59,6 +69,22 @@ def _get(url, retries=3):
                 continue
             raise
     return b""
+
+
+_arxiv_lock = threading.Lock()
+_arxiv_last = [-1e9]
+
+
+def _arxiv_get(url):
+    """Serialise arXiv requests and keep ARXIV_GAP seconds between them."""
+    with _arxiv_lock:
+        wait = ARXIV_GAP - (time.monotonic() - _arxiv_last[0])
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            return _get(url)
+        finally:
+            _arxiv_last[0] = time.monotonic()
 
 
 def _get_json(url, retries=3):
@@ -158,10 +184,10 @@ def fetch_openalex(query, limit, year_from):
 
 
 def fetch_arxiv(query, limit, year_from):
-    url = ("http://export.arxiv.org/api/query?search_query=all:"
+    url = ("https://export.arxiv.org/api/query?search_query=all:"
            + urllib.parse.quote(query) + "&max_results=%d" % limit)
     ns = {"a": "http://www.w3.org/2005/Atom", "ar": "http://arxiv.org/schemas/atom"}
-    root = ET.fromstring(_get(url))
+    root = ET.fromstring(_arxiv_get(url))
     out = []
     for entry in root.findall("a:entry", ns):
         arxiv_url = entry.findtext("a:id", default="", namespaces=ns)
@@ -225,10 +251,11 @@ def _pubmed_abstracts(base, joined_ids):
     """esummary carries no abstract, so efetch them in one call."""
     try:
         xml = _get(base + "efetch.fcgi?db=pubmed&retmode=xml&rettype=abstract&id=" + joined_ids)
+        articles = list(ET.fromstring(xml).iter("PubmedArticle"))
     except Exception:
         return {}
     out = {}
-    for article in ET.fromstring(xml).iter("PubmedArticle"):
+    for article in articles:
         pmid = article.findtext(".//PMID") or ""
         parts = [(t.text or "").strip() for t in article.iter("AbstractText")]
         if pmid:
@@ -297,6 +324,9 @@ def merge_into(target, other):
     for field in ("title", "venue", "doi", "arxiv_id", "pmid", "oa_url"):
         if not target[field] and other[field]:
             target[field] = other[field]
+    # A journal DOI replaces the DOI that DataCite assigns to an arXiv preprint.
+    if _ARXIV_DOI.match(target["doi"]) and other["doi"] and not _ARXIV_DOI.match(other["doi"]):
+        target["doi"] = other["doi"]
     if not target["year"]:
         target["year"] = other["year"]
     if not target["authors"]:
@@ -314,14 +344,27 @@ def merge_all(records, existing=None):
     index, merged = {}, []
     for rec in (existing or []) + records:
         keys = dedup_keys(rec)
-        hit = next((index[k] for k in keys if k in index), None)
-        if hit is None:
+        hits = []
+        for k in keys:
+            if k in index and index[k] not in hits:
+                hits.append(index[k])
+        if not hits:
             merged.append(rec)
             hit = rec
         else:
+            hit = hits[0]
             merge_into(hit, rec)
-        for key in dedup_keys(hit):
+            # A record that matches two earlier ones joins them.
+            for extra in hits[1:]:
+                merge_into(hit, extra)
+                merged.remove(extra)
+        # Index every key the record carried too, since merging may drop its DOI.
+        for key in dedup_keys(hit) + keys:
             index[key] = hit
+        if len(hits) > 1:  # keys indexed earlier for a joined record may be gone from its dedup_keys
+            for key, val in index.items():
+                if any(val is extra for extra in hits[1:]):
+                    index[key] = hit
     return merged
 
 
@@ -337,19 +380,26 @@ def cmd_search(args):
     sources = [s for s in (args.source.split(",") if args.source else DEFAULT_SOURCES)]
     for src in sources:
         if src not in FETCHERS:
-            sys.exit("unknown source: %s (choose from %s)" % (src, ",".join(SOURCES)))
+            _die("unknown source: %s (choose from %s)" % (src, ",".join(SOURCES)))
 
     jobs = [(src, q) for src in sources for q in args.query]
-    collected, failures = [], []
+    collected, failures, failed = [], [], set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         futures = {pool.submit(FETCHERS[src], q, args.limit, args.year_from): (src, q)
                    for src, q in jobs}
-        for future in concurrent.futures.as_completed(futures):
-            src, query = futures[future]
+        # Submission order keeps de-duplication independent of which request finishes first.
+        for future, (src, query) in futures.items():
             try:
                 collected.extend(future.result())
             except Exception as exc:
                 failures.append("%s / %r: %s" % (src, query, exc))
+                failed.add(src)
+
+    for line in failures:
+        print("warn: " + line, file=sys.stderr)
+    print("failed sources: " + (", ".join(sorted(failed)) or "none"))
+    if jobs and len(failures) == len(jobs):
+        return 2
 
     existing, prior_queries = [], []
     if args.merge:
@@ -364,6 +414,8 @@ def cmd_search(args):
                 rec.pop("url", None)
         except FileNotFoundError:
             pass
+        except json.JSONDecodeError as exc:
+            _die("cannot read %s: %s" % (args.db, exc))
 
     papers = rank(merge_all(collected, existing), args.min_citations)
     for num, rec in enumerate(papers, 1):
@@ -379,8 +431,6 @@ def cmd_search(args):
     with open(args.db, "w", encoding="utf-8") as fh:
         json.dump(db, fh, ensure_ascii=False, indent=2)
 
-    for line in failures:
-        print("warn: " + line, file=sys.stderr)
     print(format_table(papers))
     print("\n%d papers -> %s  (abstracts: %s of %d)"
           % (len(papers), args.db, sum(1 for p in papers if p["abstract"]), len(papers)))
@@ -407,7 +457,7 @@ def cmd_show(args):
     papers = {p["id"]: p for p in _load_db(args.db)["papers"]}
     missing = [i for i in args.ids if i not in papers]
     if missing:
-        sys.exit("not in %s: %s" % (args.db, ", ".join(missing)))
+        _die("not in %s: %s" % (args.db, ", ".join(missing)))
     for pid in args.ids:
         rec = papers[pid]
         print("### %s  [%s]" % (rec["id"], rec["grade"]))
@@ -425,8 +475,11 @@ def cmd_show(args):
 def cmd_check(args):
     """Every claim must point at a paper in the db, and every quote must be in that paper."""
     papers = {p["id"]: p for p in _load_db(args.db)["papers"]}
-    with open(args.evidence, encoding="utf-8") as fh:
-        evidence = json.load(fh)
+    try:
+        with open(args.evidence, encoding="utf-8") as fh:
+            evidence = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        _die("cannot read %s: %s" % (args.evidence, exc))
     if isinstance(evidence, dict):
         evidence = evidence.get("evidence", [])
 
@@ -460,7 +513,14 @@ def _load_db(path):
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
     except FileNotFoundError:
-        sys.exit("no such db: %s" % path)
+        _die("no such db: %s" % path)
+    except (OSError, json.JSONDecodeError) as exc:
+        _die("cannot read %s: %s" % (path, exc))
+
+
+def _die(message):
+    print(message, file=sys.stderr)
+    sys.exit(2)
 
 
 def main(argv=None):

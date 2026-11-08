@@ -7,6 +7,7 @@
 3. Sentence boundaries: a stop ends a sentence; an abbreviation or "No. 5" does not; table rows
    are units and the header row is skipped
 4. --translation: a dropped marker, a changed number and a changed heading count each report
+5. verdicts.json and screen.json give the count lines for the final message
 """
 import json
 import os
@@ -245,6 +246,36 @@ def test_batches_without_verdicts_json_returns_one():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_verdicts_and_screen_json_print_counts():
+    tmp = tempfile.mkdtemp(prefix="rt-rc-")
+    try:
+        d = make_run(tmp)
+        verdicts = [{"cid": f"C{i}", "verdict": v} for i, v in
+                    enumerate(("supported", "supported", "partial", "contradicted"), 1)]
+        with open(os.path.join(d, "verdicts.json"), "w", encoding="utf-8") as f:
+            json.dump({"verdicts": verdicts, "patch": [{"cid": "C3", "verdict": "partial", "sentence": "Removed sentence one [E1]."},
+                                 {"cid": "C4", "verdict": "contradicted", "sentence": "Removed sentence two [E2]."}]}, f)
+        with open(os.path.join(d, "screen.json"), "w", encoding="utf-8") as f:
+            json.dump({"counts": {"ok": 3, "drift": 1, "uncited_fact": 2, "own": 1, "own_cited": 1}}, f)
+        rc, out, err = run(d)
+        assert rc == 0, (out, err)
+        assert "verified 4: supported 2, partial 1, unsupported 0, contradicted 1; patched 2" in out, out
+        assert "screened 8 sentences: 1 drift, 2 uncited facts, 1 readings under a source marker" in out, out
+        print("[17] verdicts.json and screen.json give the verified and screened count lines")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_without_verdicts_or_screen_json_no_counts():
+    tmp = tempfile.mkdtemp(prefix="rt-rc-")
+    try:
+        rc, out, _ = run(make_run(tmp))
+        assert rc == 0 and "verified" not in out and "screened" not in out, out
+        print("[18] without verdicts.json and screen.json no count line prints")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_clean_report_returns_zero()
     test_clean_report_writes_sources_md()
@@ -262,4 +293,6 @@ if __name__ == "__main__":
     test_malformed_marker_returns_one()
     test_batches_without_verdicts_json_returns_one()
     test_table_header_row_dangling_marker_returns_one()
+    test_verdicts_and_screen_json_print_counts()
+    test_without_verdicts_or_screen_json_no_counts()
     print("OK")

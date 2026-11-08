@@ -45,7 +45,7 @@ will decide, the scope (region, period, subject), the aspects that matter most.
 | Session | Action |
 |---|---|
 | Running on Claude Fable | run procedure.md in this session |
-| Any other model | launch `research-team-lead` with the Agent tool, `model: opus`, passing the request, the tier, the answers to the intake question and the local materials; tell the user the topic and tier in one line; relay its final message as it stands |
+| Any other model | launch `research-team-lead` with the Agent tool, `model: opus`, passing the request, the tier, the answers to the intake question, the local materials and the skill directory (the absolute path of the directory that holds this SKILL.md); tell the user the topic and tier in one line; relay its final message as it stands |
 
 If the lead returns `{"error": "the Agent tool is unavailable"}`, run procedure.md in this session.
 

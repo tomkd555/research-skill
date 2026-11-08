@@ -14,7 +14,9 @@ more), then sentences under "## Answer", then sentences with a digit, then the r
 group in report order. The
 list is cut at --cap and written as claims/batch_{k}.json, 5 claims per file, each claim with
 its evidence quotes, urls and page paths ("page" is a cached page, or abstracts/{id}.txt for
-a paper item whose abstract is in collect/papers_{sq}.json, else null). Removes the batches and
+a paper item whose abstract is in collect/papers_{sq}.json, else null) and its context (the
+paper's abstract, else the quote with up to 400 characters of the cached page around it, else
+the quote; screen_claims.py builds its batches the same way). Removes the batches and
 verdicts of an earlier run, verdicts.json included. Prints the batch paths and the number of
 candidates the cap dropped.
 
@@ -30,6 +32,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import check as ck  # noqa: E402
 import citation_verifier as cv  # noqa: E402
 import report_check as rc  # noqa: E402
 
@@ -49,6 +52,14 @@ def paper_abstract(run_dir, e):
     except (OSError, ValueError, AttributeError):
         pass
     return None
+
+
+def evidence_context(run_dir, e):
+    """A paper item's abstract, else the quote with the cached page around it, else the quote."""
+    if e.get("paper"):
+        return paper_abstract(run_dir, e) or e["quote"]
+    text = ck.page_text(run_dir, e["url"])
+    return ck.context_of(text, e["quote"]) if text else e["quote"]
 
 
 def plain(sentence):
@@ -118,7 +129,8 @@ def main():
                     os.makedirs(os.path.join(args.run_dir, "abstracts"), exist_ok=True)
                     with open(os.path.join(args.run_dir, page), "w", encoding="utf-8") as f:
                         f.write(abstract)
-                ev.append({"id": i, "quote": e["quote"], "url": e["url"], "page": page})
+                ev.append({"id": i, "quote": e["quote"], "url": e["url"], "page": page,
+                           "context": evidence_context(args.run_dir, e)})
             claims.append({"cid": f"C{n}", "sentence": s, "evidence": ev})
 
         os.makedirs(os.path.join(args.run_dir, "claims"), exist_ok=True)

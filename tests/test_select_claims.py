@@ -6,6 +6,8 @@
 3. Batches hold 5 claims; the evidence carries quote, url and page (null for a paper item)
 4. A list item is a sentence boundary; a marker after the full stop stays with its sentence
 5. With screen.json, its priority sentences come first, also after a small rewording
+6. Each evidence entry carries a context: the cached page around the quote, a paper's abstract,
+   or the quote
 """
 import json
 import os
@@ -129,8 +131,9 @@ def test_evidence_page_set_for_cached_url_null_otherwise():
         run(d, 25)
         by = {c["sentence"]: c for c in sentences(d)}
         ev = by["Growth was 12.5% in 2025 [E1, E3]."]["evidence"]
-        assert ev == [{"id": "E1", "quote": "q1", "url": "https://a.com/1", "page": PAGE},
-                      {"id": "E3", "quote": "q3", "url": "https://doi.org/10.1/x", "page": None}], ev
+        assert ev == [{"id": "E1", "quote": "q1", "url": "https://a.com/1", "page": PAGE, "context": "q1"},
+                      {"id": "E3", "quote": "q3", "url": "https://doi.org/10.1/x", "page": None,
+                       "context": "q3"}], ev
         assert by["Revenue reached 100 billion yen [E2]."]["evidence"][0]["page"] is None  # not cached
         print("[4] evidence entries carry quote, url and page (null for a paper or an uncached url)")
     finally:
@@ -224,6 +227,29 @@ def test_screen_priority_sentences_first():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_evidence_context_page_abstract_or_quote():
+    tmp = tempfile.mkdtemp(prefix="rt-sc-")
+    try:
+        d = make_run(tmp)
+        open(os.path.join(d, PAGE), "w", encoding="utf-8").write("aaa q1 bbb")
+        os.makedirs(os.path.join(d, "collect"))
+        json.dump({"papers": [{"id": "P1", "abstract": "The abstract text."}]},
+                  open(os.path.join(d, "collect", "papers_SQ1.json"), "w", encoding="utf-8"))
+        ev = [{"id": "E1", "quote": "q1", "url": "https://a.com/1"},
+              {"id": "E2", "quote": "q2", "url": "https://a.com/2"},
+              {"id": "E3", "quote": "q3", "url": "https://doi.org/10.1/x", "paper": "P1", "sq": "SQ1"}]
+        open(os.path.join(d, "evidence.jsonl"), "w", encoding="utf-8").write(
+            "\n".join(json.dumps(e) for e in ev) + "\n")
+        run(d, 25)
+        by = {c["sentence"]: c for c in sentences(d)}
+        assert by["Adoption is spreading [E1]."]["evidence"][0]["context"] == "aaa q1 bbb"
+        assert by["Revenue reached 100 billion yen [E2]."]["evidence"][0]["context"] == "q2"
+        assert by["Prices fell by 3% [E3]."]["evidence"][0]["context"] == "The abstract text."
+        print("[9] context: the cached page around the quote, a paper's abstract, else the quote")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_cited_sentences_order()
     test_batches_of_five_claims()
@@ -234,4 +260,5 @@ if __name__ == "__main__":
     test_paper_abstract_written_and_page_set()
     test_table_rows_sent_as_single_claims()
     test_screen_priority_sentences_first()
+    test_evidence_context_page_abstract_or_quote()
     print("OK")

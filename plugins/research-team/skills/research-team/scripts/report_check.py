@@ -18,6 +18,8 @@ Checks on report.md (one line per failure):
     5. verdicts.json exists when claims/batch_*.json exist ("verification incomplete")
 A sentence is a run of a paragraph up to its stop, a list item or a table row.
 Then sources.md: the cited items, the uncited passing items, gaps.json and the search log.
+Last, the counts for the final message: a "verified N: ..." line when verdicts.json exists and
+a "screened N sentences: ..." line when screen.json exists.
 --translation FILE compares FILE with report.md: marker sequence, multiset of numbers and the
 count of lines starting with "#".
 
@@ -266,7 +268,34 @@ def main():
         print(line)
     print(f"{len(failures)} failures; {len(cited)} cited ids, {len(evidence)} evidence items; "
           "sources.md written")
+    try:
+        for line in count_lines(args.run_dir):
+            print(line)
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError) as exc:
+        print(f"error: counts unreadable: {exc}", file=sys.stderr)
+        return 2
     return 1 if failures else 0
+
+
+def count_lines(run_dir):
+    """The verification and screen counts that step 8's final message reports."""
+    lines = []
+    vpath = os.path.join(run_dir, "verdicts.json")
+    if os.path.exists(vpath):
+        with open(vpath, encoding="utf-8") as f:
+            v = json.load(f)
+        n = collections.Counter(x.get("verdict") for x in v.get("verdicts", []))
+        lines.append(f"verified {len(v.get('verdicts', []))}: supported {n['supported']}, "
+                     f"partial {n['partial']}, unsupported {n['unsupported']}, "
+                     f"contradicted {n['contradicted']}; patched {len(v.get('patch', []))}")
+    spath = os.path.join(run_dir, "screen.json")
+    if os.path.exists(spath):
+        with open(spath, encoding="utf-8") as f:
+            c = json.load(f).get("counts", {})
+        lines.append(f"screened {sum(c.values())} sentences: {c.get('drift', 0)} drift, "
+                     f"{c.get('uncited_fact', 0)} uncited facts, "
+                     f"{c.get('own_cited', 0)} readings under a source marker")
+    return lines
 
 
 if __name__ == "__main__":

@@ -15,14 +15,17 @@ directory `{RUN}` and the skill directory `{SKILL}`. If any is missing, return o
 `{"error": "<the missing items>"}`. Load WebSearch and WebFetch with ToolSearch if they are
 deferred.
 
-The batch is a list of `{"cid", "sentence", "evidence": [{"id", "quote", "url", "page"}]}`.
-`page` is the cached text under `{RUN}`, the abstract file for a paper item, or null for a URL the
-run never cached.
+The batch is a list of `{"cid", "sentence", "evidence": [{"id", "quote", "url", "page",
+"context"}]}`. `page` is the cached text under `{RUN}`, the abstract file for a paper item, or
+null for a URL the run never cached. `context` is the quote with up to 400 characters of the
+cached page around it, the paper's abstract, or the quote alone when the run has no page.
 
-## Per claim: one Grep per cited page and one opposing search
+## Per claim: read the context and run one opposing search
 
-1. **Re-read the source.** Grep the cached `page` for the quote's distinctive words and read the
-   surrounding lines, so you judge the quote in its context. With no `page`, run
+1. **Re-read the source.** Read `context`, so you judge the quote in its context. When a part
+   of the sentence the verdict turns on (the number, its unit and period, the subject or
+   population, a scope word, a condition) appears nowhere in the context, Grep the cached
+   `page` for it and read the surrounding lines. With no `page`, run
    `python {SKILL}/scripts/fetch_page.py --run-dir {RUN} {url} --json` once and Grep what it
    caches; a cached URL costs no request.
 2. **Search once for opposing evidence**, for every claim: the negation of the sentence or the

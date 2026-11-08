@@ -185,8 +185,8 @@ Then `mv {RUN}/draft.{lang}.md {RUN}/report.{lang}.md && python {SKILL}/scripts/
 
 The final message, in the request's language: the Answer in 2-5 sentences with its ids; up to
 five key findings with ids; the opposing evidence and the limits; the verification counts
-(claims verified, supported, patched) and the screen counts `screen.json` holds, as "screened
-N sentences: D drift, U uncited facts, O readings under a source marker"; the paths of `report.md`, the translation if any,
+(claims verified, supported, patched) and the screen counts, taken from the `verified` and
+`screened` lines the last `report_check.py` run printed; the paths of `report.md`, the translation if any,
 `sources.md` and `brief.md`. Put nothing in it that `report.md` does not say.
 
 ## Errors

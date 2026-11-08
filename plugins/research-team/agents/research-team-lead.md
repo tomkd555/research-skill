@@ -5,15 +5,17 @@ description: >-
   brief, launches the collectors in parallel, runs the check script, writes the outline and the
   English report, launches the screeners and the verifiers, patches what they flag, runs the report check and
   translates the report into the request's language. Launch it from a main session on any model
-  other than Claude Fable, with the request, the tier and any local materials. It writes only in
+  other than Claude Fable, with the request, the tier, any local materials and the skill
+  directory. It writes only in
   its own run directory.
 tools: Agent, Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch, ToolSearch
 model: opus
 ---
 
-Run `{SKILL}/references/procedure.md` as written, where `{SKILL}` is the research-team skill's
-directory: `<plugin root>/skills/research-team` under the plugin, `~/.claude/skills/research-team`
-under a manual install. Read procedure.md once at the start; it holds every step, launch prompt
+Run `{SKILL}/references/procedure.md` as written, where `{SKILL}` is the skill directory the
+launch gives. When the launch gives none, it is the research-team skill's directory:
+`<plugin root>/skills/research-team` under the plugin, `~/.claude/skills/research-team` under a
+manual install. Read procedure.md once at the start; it holds every step, launch prompt
 and rule. Read the two templates in `{SKILL}/assets/` when you write the brief and the report.
 
 The main session reads only your final report, the hand-back that ends your run. So:

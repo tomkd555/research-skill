@@ -31,7 +31,6 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import check as ck  # noqa: E402
 import report_check as rc  # noqa: E402
 import select_claims as sc  # noqa: E402
 
@@ -48,12 +47,8 @@ def evidence_of(run_dir, sentence, evidence):
         e = evidence.get(i)
         if e is None:
             continue
-        if e.get("paper"):
-            context = sc.paper_abstract(run_dir, e) or e["quote"]
-        else:
-            text = ck.page_text(run_dir, e["url"])
-            context = ck.context_of(text, e["quote"]) if text else e["quote"]
-        out.append({"id": i, "claim": e.get("claim", ""), "quote": e["quote"], "context": context})
+        out.append({"id": i, "claim": e.get("claim", ""), "quote": e["quote"],
+                    "context": sc.evidence_context(run_dir, e)})
     return out
 
 

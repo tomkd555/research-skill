@@ -1,5 +1,28 @@
+# The repository publishes the install set alone: everything else at the root stays local
+/*
+!/.gitignore
+!/.claude-plugin/
+!/plugins/
+!/README.md
+!/LICENSE
+
+# Tests, evals and research inside the published folders
+tests/
+evals/
+eval/
+research/
+test_*.py
+*_test.py
+conftest.py
+
+# Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
+
+# Local harness settings
+.claude/settings.local.json
+
+# OS
 .DS_Store
 Thumbs.db
-.pytest_cache/

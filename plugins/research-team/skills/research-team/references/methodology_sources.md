@@ -47,7 +47,7 @@ self-reported, and reproducible only by that organisation).
 ## Notes
 
 - Preprint and first-party results set the direction of a design choice. The effect on this
-  plugin is measured in its own evaluation (`eval/README.md` in the repository).
+  plugin is measured in its own evaluation.
 - The A/B/C grades, the tool budgets and the seven-label confidence scale are this skill's own
   design values.
 - Before adding a source, resolve its DOI or arXiv ID and confirm the title and first author.

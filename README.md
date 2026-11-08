@@ -25,8 +25,7 @@ conversation; STANDARD and DEEP run the full process and write to `research/{YYY
 ## Requirements
 
 Python 3 with the standard library (tested on 3.11), WebSearch and WebFetch. PDF sources need
-`pypdf`. Set `OPENALEX_MAILTO` to your address to join OpenAlex's faster queue. Tests:
-`for t in tests/test_*.py; do python "$t"; done`.
+`pypdf`. Set `OPENALEX_MAILTO` to your address to join OpenAlex's faster queue.
 
 ## License
 

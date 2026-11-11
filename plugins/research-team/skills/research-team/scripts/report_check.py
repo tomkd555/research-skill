@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""report_check.py - check report.md and write sources.md (research-team 2.0).
+"""report_check.py - check report.md and write sources.md (research-team 2.1).
 
 Used in research-team Step 4 (before claims are selected), Step 6.3 (the machine check before
 the report is delivered) and Step 7 (again after the translation is written). Standard library
@@ -17,7 +17,8 @@ Checks on report.md (one line per failure):
     4. every bracket that starts like a marker parses as one
     5. verdicts.json exists when claims/batch_*.json exist ("verification incomplete")
 A sentence is a run of a paragraph up to its stop, a list item or a table row.
-Then sources.md: the cited items, the uncited passing items, gaps.json and the search log.
+Then sources.md: the cited items, the uncited passing items, gaps.json, the leads the
+collectors wrote to collect/leads_SQ*_*.jsonl and the search log.
 Last, the counts for the final message: a "verified N: ..." line when verdicts.json exists and
 a "screened N sentences: ..." line when screen.json exists.
 --translation FILE compares FILE with report.md: marker sequence, multiset of numbers and the
@@ -203,6 +204,23 @@ def cell(v):
     return str(v).replace("|", "/").replace("\n", " ")
 
 
+def lead_lines(run_dir):
+    """One line per lead in collect/leads_SQ*_*.jsonl; a line that is not a JSON object is skipped."""
+    out = []
+    for path in sorted(glob.glob(os.path.join(run_dir, "collect", "leads_SQ*_*.jsonl"))):
+        name = os.path.basename(path)[len("leads_"):-len(".jsonl")]
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    lead = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(lead, dict) and lead.get("lead"):
+                    out.append(f"- {name} ({cell(lead.get('kind', 'lead'))}): {cell(lead['lead'])}"
+                               + (f" Why: {cell(lead['why'])}" if lead.get("why") else ""))
+    return out
+
+
 def write_sources(run_dir, evidence, cited, gaps):
     by_id = {e["id"]: e for e in evidence}
     rows = ["| id | publisher | title | date | grade | url | check |", "|---|---|---|---|---|---|---|"]
@@ -216,7 +234,11 @@ def write_sources(run_dir, evidence, cited, gaps):
     out = ["# Sources", "", "## Cited", "", *rows, "", "## Uncited passing items", ""]
     out += [f"- {e['id']}: {e['publisher']}, {e['title']}, {e['url']}" for e in uncited] or ["- none"]
     out += ["", "## Gaps", "", "```json", json.dumps(gaps, ensure_ascii=False, indent=2), "```", "",
-            "## Search log", ""]
+            "## Leads", "",
+            "Related questions the collectors surfaced. The follow-up sub-questions in `brief.md` "
+            "say which were pursued.", ""]
+    out += lead_lines(run_dir) or ["- none"]
+    out += ["", "## Search log", ""]
     for path in sorted(glob.glob(os.path.join(run_dir, "collect", "searches_SQ*_*.jsonl"))):
         name = os.path.basename(path)[len("searches_"):-len(".jsonl")]
         out += [f"### {name}", "", "| query | purpose | results | new sources |", "|---|---|---|---|"]

@@ -1,6 +1,6 @@
 # Methodology sources
 
-The published evidence behind research-team 2.0's design. No execution path reads this file.
+The published evidence behind research-team's design, as of 2.0. No execution path reads this file.
 Every arXiv ID below was resolved against the arXiv API on 2026-10-24, and the title and first
 author matched. Tiers: **peer-reviewed** (journal or archival conference), **preprint**, and
 **first-party** (an engineering post or prompt file from the organisation that built the system;
@@ -38,7 +38,7 @@ self-reported, and reproducible only by that organisation).
 
 | Source | Tier | Design rule it supports |
 |---|---|---|
-| Shao, Y., et al. (2024). Assisting in Writing Wikipedia-like Articles From Scratch with Large Language Models. NAACL 2024. arXiv:2402.14207 | peer-reviewed | the outline before prose (Table 2: RAG to oRAG, and STORM without its outline stage) |
+| Shao, Y., et al. (2024). Assisting in Writing Wikipedia-like Articles From Scratch with Large Language Models. NAACL 2024. arXiv:2402.14207 | peer-reviewed | the outline before prose (Table 2: RAG to oRAG, and STORM without its outline stage); the field surveyed for perspectives before the questions are written (2.1's scout step and territory lenses) |
 | Sharma, M., et al. (2024). Towards Understanding Sycophancy in Language Models. ICLR 2024. arXiv:2310.13548 | peer-reviewed | the user's view is one hypothesis among others |
 | Sieker, J., Lachenmaier, C., & Zarrieß, S. (2025). LLMs Struggle to Reject False Presuppositions when Misinformation Stakes are High. CogSci 2025. arXiv:2505.22354 | peer-reviewed | presuppositions in the request become sub-questions to verify |
 | Vu, T., et al. (2024). FreshLLMs: Refreshing Large Language Models with Search Engine Augmentation. Findings of ACL 2024. arXiv:2310.03214 | peer-reviewed | the as-of date and absolute dates |
@@ -50,4 +50,10 @@ self-reported, and reproducible only by that organisation).
   plugin is measured in its own evaluation.
 - The A/B/C grades, the tool budgets and the seven-label confidence scale are this skill's own
   design values.
+- The 2.1 additions are this skill's own design values too, made in answer to three observed
+  faults (reports that say what any overview says, studies read for more than they show,
+  collection confined to the point asked): the six territory lenses, the breadth collector, the
+  orient / dig / disconfirm budget shares, the leads and the follow-up wave, the study fields
+  (`design`, `basis`, `role`) and the citation-graph views of `paper_search.py`. No evaluation
+  run has measured them yet.
 - Before adding a source, resolve its DOI or arXiv ID and confirm the title and first author.

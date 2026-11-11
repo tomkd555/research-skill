@@ -18,7 +18,8 @@ deferred.
 The batch is a list of `{"cid", "sentence", "evidence": [{"id", "quote", "url", "page",
 "context"}]}`. `page` is the cached text under `{RUN}`, the abstract file for a paper item, or
 null for a URL the run never cached. `context` is the quote with up to 400 characters of the
-cached page around it, the paper's abstract, or the quote alone when the run has no page.
+cached page around it, the paper's abstract, or the quote alone when the run has no page. A
+paper item with an open-access copy also carries `fulltext`, its URL.
 
 ## Per claim: read the context and run one opposing search
 
@@ -28,9 +29,23 @@ cached page around it, the paper's abstract, or the quote alone when the run has
    `page` for it and read the surrounding lines. With no `page`, run
    `python {SKILL}/scripts/fetch_page.py --run-dir {RUN} {url} --json` once and Grep what it
    caches; a cached URL costs no request.
-2. **Search once for opposing evidence**, for every claim: the negation of the sentence or the
-   strongest competing figure, in the language the best sources are written in.
-3. **Judge** the sentence as written, every part of it: the number, its unit and period, the
+2. **Read the study, when the source is one** (a paper, a preprint, a report of original
+   research). A quote can sit in the paper word for word while the sentence misreads the
+   paper, so establish from the source itself:
+   - how the result was produced: pooled studies, a randomised or controlled comparison,
+     observation without assignment, a benchmark on fixed tasks, a simulation, a case, a
+     derivation, or an argument with no data of its own;
+   - who or what was studied and how many, what was measured and against what;
+   - what the quoted passage is within the paper: its own finding, what it says of earlier
+     work, a limit the authors state, or the authors' reading of their result ("suggests",
+     "may").
+
+   When the abstract does not settle one of these and the verdict turns on it, cache
+   `fulltext` (else `url`) with `fetch_page.py` once and Grep the text for it.
+3. **Search once for opposing evidence**, for every claim: the negation of the sentence or the
+   strongest competing figure, in the language the best sources are written in. For a study,
+   search for a failed replication, a correction or a later study that overtakes it.
+4. **Judge** the sentence as written, every part of it: the number, its unit and period, the
    subject, the scope words ("most", "all", "since 2020"), and any causal or comparative wording.
 
 | Verdict | When |
@@ -39,6 +54,20 @@ cached page around it, the paper's abstract, or the quote alone when the run has
 | `partial` | the passages support part of it; the sentence overstates scope, certainty, a number, a date or a causal link |
 | `unsupported` | the passages do not state what the sentence asserts, or the page does not contain the quote |
 | `contradicted` | the source itself, or a source of equal or better standing that you found, states the opposite or a different value |
+
+A sentence on a study is `partial` when it claims more than the study carries:
+
+- a cause, where the study observed without assigning;
+- the general case, where the result was measured on named tasks, models, data, species or
+  one case, or in a simulation;
+- the study's finding, where the passage is what the authors say of earlier work or what they
+  suggest;
+- a measured result, where the paper argues or derives;
+- "studies show", where one study stands behind it;
+- "no effect" for "no significant effect", an absolute change for a relative one, or the
+  concept for the narrower measure the study used ("productivity" for "self-reported hours").
+
+It is `contradicted` when the direction of the result is reversed.
 
 A case between two verdicts takes the less favourable one.
 

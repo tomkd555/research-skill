@@ -2,8 +2,9 @@
 name: literature-review
 description: >-
   Academic literature review. Searches OpenAlex / arXiv / PubMed / Semantic Scholar through one
-  deterministic script, ranks papers by citation count and year, and builds an evidence table
-  whose quotes are provably taken from the source abstracts. Two modes: survey (10-20 papers
+  deterministic script, ranks papers by citation count and year, lists the recent ones, follows
+  the citation graph, and builds an evidence table whose quotes are provably taken from the
+  source abstracts and whose claims say what each study's design carries. Two modes: survey (10-20 papers
   from abstracts, one context) and deep (full text of a handful of papers). Use it for requests
   such as "find the papers on this", "survey the literature", "go through the prior work",
   "what is known in this field", "read this paper closely", in any language.
@@ -82,7 +83,7 @@ as each step finishes, so the user can follow the run while it works.
 
 ### 1. Queries
 
-Write three to six queries covering four facets, in the language the literature on the topic is
+Write four to seven queries covering five facets, in the language the literature on the topic is
 written in:
 
 - **overview**: `survey`, `systematic review`, `meta-analysis` on the topic
@@ -91,6 +92,13 @@ written in:
   **Mandatory.** State before searching what you would observe if the expected answer were
   wrong, then search for it directly
 - **application**: deployment reports, case studies, clinical practice
+- **adjacent**: what surrounds the question. **Mandatory.** The same problem under the name
+  another field gives it, the upstream cause, the downstream consequence, the competing
+  approach the request did not name. A review that answers the question as asked and nothing
+  beside it leaves the reader to find these alone
+
+Use the field's own terms. When the request is in lay words, take the terms from the titles
+the overview query returns and write the other queries with them.
 
 ### 2. Search
 
@@ -119,6 +127,25 @@ Read the printed table. It has six columns: ID; year; citation count; grade; ven
   surveys use to reach the primary work behind them (`--merge` folds a follow-up search into the
   same db and renumbers the IDs).
 
+Do not select on citation count alone either. The table is ordered by it, so its head is the
+work every overview already cites, and a review built from the head says what the reader could
+have guessed. Two more views reach the rest:
+
+```
+python {TOOL} list --db papers.json --sort velocity --year-from 2025
+python {TOOL} related --db papers.json P3 --direction citing --query "limitations OR replication"
+```
+
+- `list` prints the db in another order and changes no ID: `velocity` is citations per year
+  since publication, `recent` is newest first.
+- `related` follows the OpenAlex citation graph from one to three anchor papers: `citing`
+  reaches the work that tests, extends or disputes the anchor (`--query` keeps the citing
+  papers that match), `references` what it builds on, `similar` its neighbours. It folds what
+  it finds into the db and renumbers the IDs like `--merge`, printing each seed's new ID. Run
+  `related --direction citing` on the anchors of every review.
+- Select from all three views. Of the papers you read, at least a third come from the last
+  three years where the field has them, and at least two from `related`.
+
 ### 3. Read
 
 ```
@@ -131,10 +158,29 @@ general-purpose subagent per three papers, on the model the table above calls fo
 model in the Agent tool's `model` parameter on every launch: a general-purpose subagent given
 none runs on the session's own model.
 
+Read each paper for three things before writing a claim on it, and record them in the evidence
+unit. A quote can be in the paper word for word while the claim misreads the paper:
+
+- **design**: how the result was produced. `synthesis` (meta-analysis, systematic review),
+  `experiment` (randomised or controlled groups), `observational` (cohort, cross-section,
+  survey, logs, interviews), `benchmark` (systems scored on fixed tasks or datasets),
+  `simulation`, `case`, `theory` (a formal derivation) or `argument` (a position, a proposed
+  framework or a narrative review, with no data of its own).
+- **basis**: who or what was studied and how many, where and when, what was measured and
+  against what. Give the measure the study used, not the concept it stands for
+  ("self-reported weekly hours", not "productivity").
+- **role** of the quoted passage: `result` (the study's own finding), `background` (what it
+  says about earlier work or common belief), `method`, `limitation` (a limit the authors
+  state) or `interpretation` (the authors' reading or speculation: "suggests", "may").
+
+An abstract opens with background and ends with interpretation; the finding sits between them,
+in the sentence that reports what was measured. Quote that sentence. A title and the first
+lines of an abstract promise more than the results show.
+
 Tell each subagent what the review is for and what its answer feeds into, as well as its
 assignment: a reader that knows the purpose connects the paper to it and does not guess at
-intent. Give it the paper IDs, the `fulltext` URLs, the question, and the evidence-unit format
-below. Ask for everything it finds bearing on the question, including results that contradict
+intent. Give it the paper IDs, the `fulltext` URLs, the question, the three reading points
+above, and the evidence-unit format below. Ask for everything it finds bearing on the question, including results that contradict
 it, and filter in the main session: a subagent told to report only what matters reports less.
 
 ### 4. Evidence table
@@ -144,9 +190,17 @@ Write `evidence.json`:
 ```json
 [
   {"id": "E1", "paper": "P3", "claim": "one sentence stating a falsifiable proposition, in the language of the request",
-   "quote": "verbatim, up to about 40 words", "quote_source": "abstract"}
+   "quote": "verbatim, up to about 40 words", "quote_source": "abstract",
+   "design": "experiment", "basis": "1,612 employees of one firm, randomised, 2 years; performance-review scores against full-time office work",
+   "role": "result"}
 ]
 ```
+
+The claim states what the design carries and no more: an `observational` result is an
+association, never a cause; a `benchmark`, `simulation` or `case` result names the tasks,
+models, data or case it holds for; an `argument` or `theory` is what the authors argue or
+derive; the direction, the unit, relative or absolute change and the comparison stand as the
+paper gives them, and "no significant effect" stays as written.
 
 `quote_source` is `abstract` or `fulltext`. A quote from an abstract is checked mechanically; a
 quote from full text is not, so quote it exactly and mark it. Never build a quote from a search
@@ -165,13 +219,22 @@ disappears without explanation reads to the user as a check that passed.
 ### 5. Report
 
 Attach `[E#]` to every sentence stating a fact, and state each claim in your own words; where a
-sentence keeps a paper's wording, put that wording in quotation marks. State confidence with one of four English labels
+sentence keeps a paper's wording, put that wording in quotation marks. Name a study's design
+and basis the first time it appears ("a randomised trial of 1,612 employees at one firm"), and
+keep the limits the evidence unit records: one study is "one study", and "studies show" needs
+two. A `background` unit supports only what the authors say of earlier work, and an
+`interpretation` unit is worded as the authors' reading. State confidence with one of four English labels
 (certain / likely / possible / uncertain), whatever language the prose is in, and never as a
 bare point estimate. Give the evidence hierarchy where it matters
 (meta-analysis and systematic review > RCT > observational study > case study > expert
 opinion). Put disconfirming and
 conflicting findings in their own section, and say when a question is contested, never
-picking the majority side silently. Close with what the literature does not answer. Match the
+picking the majority side silently. Give the adjacent findings their own section, "Beyond the
+question": what the request did not ask and its reader needs, each with a sentence on how it
+bears on the question. Lead each section with what a reader who follows the field would not
+already expect (a mechanism, a condition under which the usual result fails, a recent result
+that overtakes an older one); what every survey says gets one sentence. Close with what the
+literature does not answer. Match the
 report's length to what the evidence carries: cover every claim in the evidence table and the gaps
 around it, and add no filler sections and no restatement of the search method. Remove all
 mannered prose: where a literal phrase is available, use it.
@@ -191,11 +254,16 @@ leaving things out; never compress it into fragments, abbreviations or arrow cha
 - The script grades a record without a DOI or arXiv id as C and keeps it. Do not add papers to
   `evidence.json` by hand.
 - The disconfirmation query runs and you record its result, including when it found nothing.
+- The adjacent query and one `related --direction citing` call run, and the report says what
+  they found.
+- Every evidence unit carries `design`, `basis` and `role`, and no claim says more than its
+  design carries.
 - Mark preprints as not peer-reviewed at every citation.
 - Papers the search did not return do not enter the report, however well you remember them.
 
 ## Not covered
 
-Citation-graph snowballing (finding the papers that cite a given paper) is not implemented;
-search the terms the paper uses instead. Extending `paper_search.py` is not part of a review run:
-note the gap where it bit and move on.
+`related` follows the citation graph through OpenAlex alone, so a paper OpenAlex does not index
+has no citing list; search the terms the paper uses instead. `check` matches quotes against
+abstracts and does not read `design`, `basis` or `role`. Extending `paper_search.py` is not part
+of a review run: note the gap where it bit and move on.

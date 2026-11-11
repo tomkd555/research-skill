@@ -10,13 +10,14 @@ Candidates are the sentences (a list item or a table row is one sentence) of rep
 carry a marker. Evidence ids missing from evidence.jsonl or with check status fail are dropped;
 a sentence left with no evidence is skipped and printed. Order: the sentences that match a
 "priority" sentence of screen.json (when it exists; markers removed, difflib ratio 0.8 or
-more), then sentences under "## Answer", then sentences with a digit, then the rest, each
-group in report order. The
+more), then sentences under "## Answer", then sentences that cite a study item (paper, doi or
+arxiv_id set), then sentences with a digit, then the rest, each group in report order. The
 list is cut at --cap and written as claims/batch_{k}.json, 5 claims per file, each claim with
 its evidence quotes, urls and page paths ("page" is a cached page, or abstracts/{id}.txt for
 a paper item whose abstract is in collect/papers_{sq}.json, else null) and its context (the
 paper's abstract, else the quote with up to 400 characters of the cached page around it, else
-the quote; screen_claims.py builds its batches the same way). Removes the batches and
+the quote; screen_claims.py builds its batches the same way). A paper item whose db record has
+an open-access copy also carries "fulltext", its URL. Removes the batches and
 verdicts of an earlier run, verdicts.json included. Prints the batch paths and the number of
 candidates the cap dropped.
 
@@ -40,18 +41,23 @@ BATCH_SIZE = 5
 SIMILAR = 0.8  # difflib ratio at which a report sentence counts as a screen priority sentence
 
 
-def paper_abstract(run_dir, e):
-    """The abstract of a paper item from its collector db, or None."""
+def paper_db_record(run_dir, e):
+    """The record of a paper item in its collector db, or None."""
     if not e.get("paper") or not e.get("sq"):
         return None
     try:
         with open(os.path.join(run_dir, "collect", f"papers_{e['sq']}.json"), encoding="utf-8") as f:
             for rec in json.load(f).get("papers", []):
                 if rec.get("id") == e["paper"]:
-                    return rec.get("abstract") or None
+                    return rec
     except (OSError, ValueError, AttributeError):
         pass
     return None
+
+
+def paper_abstract(run_dir, e):
+    """The abstract of a paper item from its collector db, or None."""
+    return (paper_db_record(run_dir, e) or {}).get("abstract") or None
 
 
 def evidence_context(run_dir, e):
@@ -107,9 +113,12 @@ def main():
         first = [s for _, s in cited if flagged(s, priority)]
         cited = [(sec, s) for sec, s in cited if s not in first]
         answer = [s for sec, s in cited if sec == "## Answer"]
-        rest = [(sec, s) for sec, s in cited if sec != "## Answer"]
-        ordered = first + answer + [s for _, s in rest if rc.has_digit_outside_marker(s)] \
-            + [s for _, s in rest if not rc.has_digit_outside_marker(s)]
+        rest = [s for sec, s in cited if sec != "## Answer"]
+        # a sentence on a study is where a reading goes wrong, so it is verified before a bare figure
+        study = [s for s in rest if any(ck.is_study(evidence.get(i, {})) for i in rc.marker_ids(s))]
+        rest = [s for s in rest if s not in study]
+        ordered = first + answer + study + [s for s in rest if rc.has_digit_outside_marker(s)] \
+            + [s for s in rest if not rc.has_digit_outside_marker(s)]
         chosen = ordered[:max(args.cap, 0)]
 
         claims = []
@@ -131,6 +140,9 @@ def main():
                         f.write(abstract)
                 ev.append({"id": i, "quote": e["quote"], "url": e["url"], "page": page,
                            "context": evidence_context(args.run_dir, e)})
+                fulltext = (paper_db_record(args.run_dir, e) or {}).get("oa_url")
+                if fulltext:
+                    ev[-1]["fulltext"] = fulltext
             claims.append({"cid": f"C{n}", "sentence": s, "evidence": ev})
 
         os.makedirs(os.path.join(args.run_dir, "claims"), exist_ok=True)

@@ -16,8 +16,11 @@ The instruction gives the batch file `{RUN}/screen/batch_{k}.json` and the label
 `{"error": "<the missing items>"}`.
 
 The batch is a list of `{"sid", "section", "sentence", "evidence": [{"id", "claim", "quote",
-"context"}]}`. `context` is the quote with the page text around it. `claim` is the collector's
-summary of the passage; judge against `quote` and `context`, which are the source's words.
+"context"}]}`. `context` is the quote with the page text around it, or a paper's abstract.
+`claim` is the collector's summary of the passage; judge against `quote` and `context`, which
+are the source's words. An item that quotes a study also carries `study`: its design, its
+basis (who or what was studied, how many, the measure, the comparison) and the role of the
+quoted passage within the study.
 
 ## Per sentence
 
@@ -35,11 +38,30 @@ Answer these in order; the first answer that ends in a label decides it.
    - the setting or the model;
    - the scope words ("most", "all", "since 2020");
    - the hedges and conditions the source states ("may", "up to", "in summarisation");
-   - any causal or comparative wording.
+   - any causal or comparative wording;
+   - for an item with `study`, whether the sentence claims more than the study can carry
+     (below).
 
 A sentence that drops a hedge or condition the source states is `drift`, as is one that joins
 figures from different studies or conditions into one range. Wording that differs from the
 source while stating the same thing is `ok`.
+
+## A sentence on a study
+
+A quote can sit in the page word for word while the sentence still misreads the study. With a
+`study` line, the sentence is `drift` when it:
+
+- states a cause where the design is `observational`;
+- states a `benchmark`, `simulation` or `case` result as holding in general, or without the
+  tasks, models, data or case it was measured on;
+- presents an `argument` or `theory` as something the study measured;
+- presents a `background` passage (what the authors say of earlier work) or an
+  `interpretation` passage (what the authors suggest) as the study's own finding;
+- says "studies show", "research finds" or "the evidence shows" on the items of one study;
+- turns "no significant effect" into "no effect", a relative change into an absolute one, or
+  reverses the direction of the comparison.
+
+When the `study` line says the reading is not recorded, judge the same points from `context`.
 
 ## Output
 

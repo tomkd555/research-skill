@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""check.py - lint collector files and merge them into evidence.jsonl (research-team 2.0).
+"""check.py - lint collector files and merge them into evidence.jsonl (research-team 2.1).
 
 Used in research-team Step 2 (collectors lint their own file) and Step 3.1 (the lead merges
 every collector file, assigns evidence ids and checks each item). Standard library only; the
@@ -13,7 +13,8 @@ Examples:
     python check.py --run-dir research/20261024-topic --append research/20261024-topic/claims/opposing.jsonl
 
 Output (merge): evidence.jsonl (each item plus "id" and "check"), digests/SQ{n}.md (the passing
-and warn items, each quote with up to 400 characters of context from the cached page) and
+and warn items, each quote with up to 400 characters of context from the cached page; a paper
+item with its abstract, printed once per paper; a study item with its "Study:" line) and
 gaps.json ({"empty_sq": [...], "failed": [{"id", "reason"}]}). The stdout summary is capped at
 40 lines. --only SQ3 re-runs the merge for that sub-question: its old items are replaced, the
 new ones take ids after the current maximum, and every other item keeps its id.
@@ -29,6 +30,9 @@ whitespace, typographic quotes, dashes, soft hyphens and zero-width characters.
 for a misnamed file, one "file NAME:" line.
 A collect/SQ*_*.jsonl file whose name is not SQ{n}_web.jsonl or SQ{n}_academic.jsonl, and an
 item whose sq differs from its file name, are failures. --only is case-insensitive.
+A study item is one with paper, doi or arxiv_id set. --lint fails a study item that lacks
+design, basis or role (the collector's reading of the study); the merge and --append keep
+such an item and its digest entry says the reading is missing.
 
 Exit codes: --lint 0 = clean / 1 = at least one failing item; merge 0 = done (items may have
 failed) / 2 = usage or I/O error
@@ -53,6 +57,11 @@ REQUIRED = ["sq", "claim", "quote", "url", "title", "publisher", "date", "grade"
             "stance", "kind"]
 ENUMS = {"grade": ("A", "B", "C"), "stance": ("supports", "opposes", "context"),
          "kind": ("fact", "figure", "estimate")}
+# how a study produced its result, and what the quoted passage is within the study
+STUDY_ENUMS = {"design": ("synthesis", "experiment", "observational", "benchmark", "simulation",
+                          "case", "theory", "argument"),
+               "role": ("result", "background", "method", "limitation", "interpretation")}
+BASIS_MIN = 20
 DATE_RE = re.compile(r"^(\d{4}(-\d{2}(-\d{2})?)?|unknown)$")
 FILE_RE = re.compile(r"^SQ(\d+)_(web|academic)\.jsonl$")
 CONTEXT = 400
@@ -156,6 +165,29 @@ def file_sq_error(path, item):
     return None
 
 
+def is_study(item):
+    """Original research: the item names a db paper, a DOI or an arXiv id."""
+    return bool(item.get("paper") or item.get("doi") or item.get("arxiv_id"))
+
+
+def has_reading(item):
+    return all(item.get(k) in allowed for k, allowed in STUDY_ENUMS.items()) \
+        and isinstance(item.get("basis"), str) and len(item["basis"].strip()) >= BASIS_MIN
+
+
+def study_error(item):
+    """Reason when a study item lacks its reading (design, basis, role), else None."""
+    if not is_study(item):
+        return None
+    for key, allowed in STUDY_ENUMS.items():
+        if item.get(key) not in allowed:
+            return f"a study item (paper, doi or arxiv_id set) needs {key}: one of {', '.join(allowed)}"
+    if not has_reading(item):
+        return ("a study item needs basis: who or what was studied and how many, where and when, "
+                "what was measured and against what")
+    return None
+
+
 def lint_item(run_dir, item, dbs):
     """Return (reason or None, quote_match). The shape, the page and the quote, no network."""
     for key in REQUIRED:
@@ -207,7 +239,7 @@ def run_lint(run_dir, path):
         if err is None:
             err, _ = lint_item(run_dir, item, dbs)
         if err is None:
-            err = file_sq_error(path, item)
+            err = file_sq_error(path, item) or study_error(item)
         if err:
             failures += 1
             print(f"line {k}: {err}")
@@ -237,16 +269,35 @@ def context_of(text, quote):
     return body[max(0, i - CONTEXT):i + len(nq) + CONTEXT]
 
 
+def study_line(item):
+    """The digest line that tells the writer what kind of study an item quotes, or None."""
+    if not is_study(item):
+        return None
+    if has_reading(item):
+        return f"Study: {item['design']}; {item['basis'].strip()}; quoted passage: {item['role']}"
+    return "Study: design, basis and role not recorded; read the abstract before wording a sentence on it"
+
+
 def write_digest(run_dir, sq, items):
-    lines = []
+    lines, dbs, abstract_at = [], {}, {}
     for it in items:
         if it["check"]["status"] == "fail":
             continue
         text = None if it.get("paper") else page_text(run_dir, it["url"])
         lines += [f"### {it['id']} ({it['grade']}, {it['stance']}, {it['kind']}) "
                   f"{it['check']['status']}, cluster {it['cluster']}", "",
-                  it["claim"], "", f"{it['publisher']}, {it['date']}, {it['url']}", "",
-                  "> " + (context_of(text, it["quote"]) if text else it["quote"]), ""]
+                  it["claim"], "", f"{it['publisher']}, {it['date']}, {it['url']}", ""]
+        if study_line(it):
+            lines += [study_line(it), ""]
+        lines += ["> " + (context_of(text, it["quote"]) if text else it["quote"]), ""]
+        if it.get("paper"):  # the writer reads the quote inside its abstract, once per paper
+            rec, _ = paper_record(run_dir, it, dbs)
+            abstract = " ".join(((rec or {}).get("abstract") or "").split())
+            if abstract and it["paper"] in abstract_at:
+                lines += [f"Abstract: under {abstract_at[it['paper']]}", ""]
+            elif abstract:
+                abstract_at[it["paper"]] = it["id"]
+                lines += ["Abstract: " + abstract, ""]
     os.makedirs(os.path.join(run_dir, "digests"), exist_ok=True)
     with open(os.path.join(run_dir, "digests", f"{sq}.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines))

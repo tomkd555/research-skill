@@ -16,9 +16,11 @@ when a wait ends. Pause for the user only at the intake question and the DEEP pl
 
 | | STANDARD | DEEP |
 |---|---|---|
-| Sub-questions | 2-4 | 3-6 |
-| Collectors | one per sub-question | one per sub-question, plus an `academic` one where the sub-question turns on studies |
+| Scout searches | up to 4 | up to 6 |
+| Sub-questions | 2-4, plus the breadth one | 3-6, plus the breadth one |
+| Collectors | one per sub-question, plus an `academic` one where the sub-question turns on studies | the same |
 | Tool budget per collector | 12 | 20 |
+| Follow-up collectors | up to 2, budget 8 | up to 4, budget 12 |
 | Claims verified (`--cap`) | 10 | 25 |
 | Report prose | about 3,000 words | about 6,000 words |
 
@@ -26,48 +28,99 @@ when a wait ends. Pause for the user only at the intake question and the DEEP pl
 
 1. Get the as-of date with Bash. Create `{RUN}` = `research/{YYYYMMDD}-{slug}/` unless the
    request names a directory. Write nothing outside it.
-2. Write `brief.md` from `{SKILL}/assets/brief_template.md`: the decision, the question type, the
-   presuppositions to verify, the sub-questions, the competing hypotheses, the local materials.
-   Derive the sub-questions from the decision: each is a condition the decision turns on, and no
-   two are answered by the same evidence. Register the user's own view as one hypothesis and
-   search for its support and its refutation alike.
-3. In DEEP, when the session can ask, show the user the sub-questions and get agreement in one
-   turn. A subagent records "plan agreement skipped" in the brief and continues.
+2. Scout before any sub-question is written. A plan drawn from the request's own words stays
+   inside the request's frame, and collectors given lay terms return what every overview says.
+   Run the scout searches in one message, with no fetches: the request in the terms a
+   specialist would use; the current state of the subject ("review", "state of", the as-of
+   year); the criticism or failure side; and what the first results name beside the request
+   (an alternative, an upstream cause, a consequence). Take from the result snippets:
+   - the field's own terms and the names that recur (people, organisations, products,
+     datasets, rule numbers);
+   - the positions people hold, and what changed in the 12 months before the as-of date;
+   - what surrounds the request, lens by lens (the brief's Territory section).
+
+   When WebSearch is unavailable, fill these from what you know and say so in the brief's Notes.
+3. Write `brief.md` from `{SKILL}/assets/brief_template.md`: the decision, the question type, the
+   presuppositions to verify, the field terms, the territory, the sub-questions, the competing
+   hypotheses, the local materials.
+   - Presuppositions include the request's framing: that the options it names are the live
+     ones, and that its key term means what the field means by it.
+   - Territory: write under every lens what is there, then mark the line `SQn` (the decision
+     turns on it, so it becomes a sub-question), `breadth` (the reader needs to know it and
+     the decision does not turn on it) or `out` with a reason. "The request did not ask" is
+     no reason.
+   - Derive the sub-questions from the decision and the territory: each is a condition the
+     decision turns on, and no two are answered by the same evidence.
+   - The last sub-question is the breadth one, written `- SQn: [breadth] ...`, and lists the
+     territory lines marked `breadth`.
+   - Register the user's own view as one hypothesis and search for its support and its
+     refutation alike.
+4. In DEEP, when the session can ask, show the user the sub-questions and the territory lines
+   and get agreement in one turn. A subagent records "plan agreement skipped" in the brief and
+   continues.
 
 ## 2. Collect (wait 1)
 
-Launch every collector in one message, `model: sonnet`. Each launch prompt, invariant text first:
+Launch every collector in one message: `model: sonnet` for `web`, `model: opus` for
+`academic`, where the reading of a study decides what the report may say. The breadth
+sub-question gets one `web` collector with `Mode: breadth`. Each launch prompt, invariant text
+first:
 
 ```text
 Collect evidence for one sub-question, following your agent definition.
 
 - Topic: {TOPIC}
+- Decision: {the brief's Decision}
 - As-of date: {AS_OF}
+- Field terms: {the brief's Field terms}
 - Run directory: {RUN}
 - Skill directory: {SKILL}
 - Local materials: {MATERIALS or none}
 
 <assignment>
 - Sub-question {SQ}: {text}
+- Mode: {focus | breadth}
 - Source: {web | academic}
-- Tool budget: {12 | 20}
+- Tool budget: {8 | 12 | 20}
 - Evidence path: {RUN}/collect/{SQ}_{web|academic}.jsonl
 - Searches path: {RUN}/collect/searches_{SQ}_{web|academic}.jsonl
+- Leads path: {RUN}/collect/leads_{SQ}_{web|academic}.jsonl
 </assignment>
 ```
 
 Wait for every collector to return. A collector that returns no files is relaunched once; after
 a second failure, record the sub-question as a gap.
 
-## 3. Check and outline
+## 3. Check, follow up and outline (wait 1b)
 
 1. `python {SKILL}/scripts/check.py --run-dir {RUN}`. Read its summary only.
-2. Read `{RUN}/digests/SQ*.md`. Write `{RUN}/outline.md`: the report's headings in order and, under
-   each, the evidence ids it will use. Organise by what the decision needs to know, and put
-   opposing items under the heading they oppose.
-3. DEEP only, when `gaps.json` lists a sub-question with no passing item: launch one collector
-   for it with a budget of 12 and a narrower or reworded sub-question, draft the other sections
-   while it runs, then run `check.py --run-dir {RUN} --only {SQ}` and add its heading's ids.
+2. Read `{RUN}/digests/SQ*.md`.
+3. Choose the follow-up collectors, up to the tier's number, from two sources:
+   - a sub-question that `gaps.json` lists with no passing item: the same `SQ` id with a
+     narrower or reworded sub-question;
+   - a lead from the collectors' return lines that could change the Answer, or that names
+     something the decision depends on and no sub-question covers (an alternative, a cause, a
+     consequence, a newer result that overtakes a collected one). It becomes a new
+     sub-question with the next `SQ` id, appended to the brief with the lead it came from.
+
+   A lead that only adds detail to a finding in hand stays in `sources.md`, which lists every
+   lead. Launch the follow-ups in one message with the step 2 prompt and models, `Mode: focus`
+   and the follow-up budget. When nothing qualifies, record "no follow-up" in the brief's Notes.
+4. Write `{RUN}/outline.md` while the follow-ups run: the report's headings in order and, under
+   each, the evidence ids it will use.
+   - Organise by what the decision needs to know, and put opposing items under the heading
+     they oppose.
+   - Under each heading, mark the items a reader who follows the subject would not already
+     expect: a mechanism, a condition under which the usual account fails, a named case, a
+     figure with its denominator, a change inside the last 12 months, a disagreement between
+     good sources. The section leads with these.
+   - Note each pair of items from different sub-questions where one explains, limits or
+     contradicts the other; the report states the connection as its own reading.
+   - `## Beyond the question` takes the breadth and follow-up items that bear on the decision
+     without answering a sub-question, each with one line on how it bears.
+5. When the follow-ups return, run `check.py --run-dir {RUN} --only {SQ}` for each of their ids
+   in one Bash call, read the new digests and add their ids to the outline. A follow-up that
+   returns no files is not relaunched; its sub-question is a gap.
 
 ## 4. Write
 
@@ -77,6 +130,12 @@ to a file named `report*`, so the draft is renamed in the Bash call that first c
 later changes to `report.md` go through Edit.
 
 - The Answer comes first and answers the decision in the brief, with the evidence that carries it.
+  When a finding under Beyond the question changes how the Answer should be read (an
+  alternative the request did not name fits better, the premise is being overtaken), the
+  Answer says so in one sentence with its ids.
+- Give the space to what the outline marks as beyond the usual account; what every overview
+  of the subject says gets one sentence of setup. Support decides what the Answer rests on
+  (grade, independent clusters); novelty decides only how much space a supported finding gets.
 - Every sentence that states a fact carries the ids it rests on, `[E3]` or `[E3, E7]`, at its
   end.
 - Write each cited sentence from the quote and its context in the digest; the item's claim
@@ -88,7 +147,29 @@ later changes to `report.md` go through Edit.
   conditions are never joined with "from ... to".
 - The report's own reading, judgement or recommendation goes in a sentence of its own after
   the facts it rests on, worded as the report's reading, and carries no ids; the ids stay on
-  the fact sentences.
+  the fact sentences. A connection between items of different sub-questions is such a reading.
+- A sentence on a study is written from the item's `Study:` line and abstract as well as its
+  quote. Name the design and the basis the first time the study appears ("a randomised trial
+  of 1,612 employees at one firm", "one preprint that scores 3 models on one benchmark"), and
+  word the result as the design allows:
+  - `observational`: an association ("is associated with"), never a cause;
+  - `benchmark`, `simulation`, `case`: the tasks, models, data or case named, never the
+    general case;
+  - `argument`, `theory`: what the authors argue or derive, never a finding;
+  - `synthesis`: the pooled result with the number of studies behind it.
+- The role of the quoted passage decides what the sentence may claim: `result` is what the
+  study found; `background` is what its authors say about earlier work and supports that
+  attribution alone; `interpretation` is the authors' reading, worded as theirs ("the authors
+  suggest"); `limitation` sits beside the result it limits.
+- One study is "one study": "studies show" needs two independent clusters. Keep the
+  direction, the unit, relative or absolute change and the comparison as the source states
+  them; "no significant effect" stays as written, never "no effect". When the `Study:` line
+  says the reading is not recorded, take the design from the abstract; when the abstract does
+  not state it, the sentence says what the quote says and attributes it.
+- Beyond the question: 2-5 findings the request did not ask for and the reader needs, each as
+  a fact with its ids followed by a sentence of the report's reading on how it bears on the
+  decision. An item that merely shares the topic stays out. With nothing to report, one
+  sentence says the breadth collection found nothing that bears on the decision.
 - Write every date as `YYYY-MM-DD` or `YYYY-MM` and every count in Arabic digits ("3-month",
   "2 weeks"), so the translation in step 7 carries the same numbers.
 - Cite only items in the digests. Cite a `warn` item only where no `pass` item says the same.
@@ -184,7 +265,9 @@ Then `mv {RUN}/draft.{lang}.md {RUN}/report.{lang}.md && python {SKILL}/scripts/
 ## 8. Deliver
 
 The final message, in the request's language: the Answer in 2-5 sentences with its ids; up to
-five key findings with ids; the opposing evidence and the limits; the verification counts
+five key findings with ids; up to three points from Beyond the question with ids; the opposing
+evidence and the limits; one line naming the leads not pursued, which `sources.md` lists; the
+verification counts
 (claims verified, supported, patched) and the screen counts, taken from the `verified` and
 `screened` lines the last `report_check.py` run printed; the paths of `report.md`, the translation if any,
 `sources.md` and `brief.md`. Put nothing in it that `report.md` does not say.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""screen_claims.py - compare every report sentence with its cited quotes (research-team 2.0).
+"""screen_claims.py - compare every report sentence with its cited quotes (research-team 2.1).
 
 Used in research-team Step 5.1 (--write, before the screeners start) and Step 5.2 (--apply,
 after every screener has written screen/labels_{k}.json). Standard library only, no network.
@@ -8,11 +8,12 @@ Examples:
     python screen_claims.py --run-dir research/20261024-topic --write
     python screen_claims.py --run-dir research/20261024-topic --apply
 
---write: every sentence of report.md under "## Answer", "## Findings" and "## Disagreements
-and limits" becomes {"sid", "section", "sentence", "evidence": [{"id", "claim", "quote",
-"context"}]} in screen/batch_{k}.json, 40 sentences per file. "context" is the quote with up
-to 400 characters of the cached page around it, the abstract of a paper item, or the quote
-alone. Earlier screen/ files and screen.json are removed first.
+--write: every sentence of report.md under "## Answer", "## Findings", "## Beyond the
+question" and "## Disagreements and limits" becomes {"sid", "section", "sentence", "evidence":
+[{"id", "claim", "quote", "context"}]} in screen/batch_{k}.json, 40 sentences per file.
+"context" is the quote with up to 400 characters of the cached page around it, the abstract
+of a paper item, or the quote alone. A study item also carries "study", the digest's line on
+its design, basis and the role of the quoted passage. Earlier screen/ files and screen.json are removed first.
 --apply: reads screen/batch_*.json and screen/labels_*.json ({"sid", "label", "reason"}, label
 one of ok, drift, uncited_fact, own, own_cited) and writes screen.json {"counts", "priority",
 "fix"}. "priority" holds the drift, uncited_fact and own_cited sentences, which
@@ -31,10 +32,11 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import check as ck  # noqa: E402
 import report_check as rc  # noqa: E402
 import select_claims as sc  # noqa: E402
 
-SECTIONS = ("## Answer", "## Findings", "## Disagreements and limits")
+SECTIONS = ("## Answer", "## Findings", "## Beyond the question", "## Disagreements and limits")
 LABELS = ("ok", "drift", "uncited_fact", "own", "own_cited")
 PRIORITY = ("drift", "uncited_fact", "own_cited")
 FIX = ("uncited_fact", "own_cited")
@@ -49,6 +51,8 @@ def evidence_of(run_dir, sentence, evidence):
             continue
         out.append({"id": i, "claim": e.get("claim", ""), "quote": e["quote"],
                     "context": sc.evidence_context(run_dir, e)})
+        if ck.study_line(e):
+            out[-1]["study"] = ck.study_line(e)[len("Study: "):]
     return out
 
 

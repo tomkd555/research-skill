@@ -11,8 +11,16 @@ evidence that carries it and the one observation that would change it.}
 
 ### {Heading from outline.md}
 
-{Prose. Every sentence that states a fact ends with its ids. Opposing items sit under the heading
+{Prose. Every sentence that states a fact ends with its ids. Each section leads with what a
+reader who follows the subject would not already expect. Opposing items sit under the heading
 they oppose, with why the values differ.}
+
+## Beyond the question
+
+{2-5 findings the request did not ask for and the reader needs: an upstream cause, a consequence,
+an alternative the request did not name, the same problem under another name, a recent change.
+Each is a fact with its ids, then a sentence of the report's reading on how it bears on the
+decision.}
 
 ## Disagreements and limits
 

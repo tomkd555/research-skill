@@ -9,16 +9,27 @@ only for the papers it picks.
 Standard library only. Uses the network.
 
     python paper_search.py search "query one" "query two" --db papers.json
+    python paper_search.py list --db papers.json --sort velocity --year-from 2025 --top 15
+    python paper_search.py related --db papers.json P1 --direction citing --query "limitations"
     python paper_search.py show --db papers.json P1 P3
     python paper_search.py check --db papers.json --evidence evidence.json
 
+search ranks by citation count, so the head of its table is the work everybody already cites.
+list prints the same db in another order without changing an id: velocity is citations per
+year since publication, recent is newest first. related follows the OpenAlex citation graph
+from papers in the db (citing = the papers that cite it, references = the papers it cites,
+similar = OpenAlex's related works), folds what it finds into the db and reassigns the ids as
+search --merge does; it prints the papers it found and the new id of each seed.
+
 Exit codes: 0 = ok / 1 = check failed / 2 = usage or I/O error, or every source failed in a
-search (the db is then left as it was). arXiv requests run one at a time, 3 s apart, and honour
-Retry-After. Each search prints a "failed sources:" line on stdout.
+search or every seed failed in related (the db is then left as it was). arXiv requests run one
+at a time, 3 s apart, and honour Retry-After. Each search prints a "failed sources:" line on
+stdout.
 """
 
 import argparse
 import concurrent.futures
+import datetime
 import json
 import os
 import re
@@ -123,8 +134,8 @@ def from_inverted_index(index):
 def record(**kw):
     rec = {
         "title": "", "authors": [], "year": None, "venue": "", "doi": "", "arxiv_id": "",
-        "pmid": "", "citations": 0, "is_preprint": False, "abstract": "", "oa_url": "",
-        "sources": [],
+        "pmid": "", "openalex": "", "citations": 0, "is_preprint": False, "abstract": "",
+        "oa_url": "", "sources": [],
     }
     rec.update(kw)
     rec["doi"] = norm_doi(rec["doi"])
@@ -164,23 +175,58 @@ def fetch_openalex(query, limit, year_from):
         url += "&mailto=" + urllib.parse.quote(MAILTO)
     if year_from:
         url += "&filter=publication_year:>%d" % (year_from - 1)
-    out = []
-    for work in _get_json(url).get("results", []):
-        loc = (work.get("primary_location") or {}).get("source") or {}
-        out.append(record(
-            title=work.get("display_name") or "",
-            authors=[a["author"]["display_name"] for a in work.get("authorships", [])[:5]
-                     if a.get("author")],
-            year=work.get("publication_year"),
-            venue=loc.get("display_name") or "",
-            doi=work.get("doi") or "",
-            citations=work.get("cited_by_count") or 0,
-            is_preprint=work.get("type") == "preprint" or loc.get("type") == "repository",
-            abstract=from_inverted_index(work.get("abstract_inverted_index")),
-            oa_url=(work.get("open_access") or {}).get("oa_url") or "",
-            sources=["openalex"],
-        ))
-    return out
+    return [openalex_record(work) for work in _get_json(url).get("results", [])]
+
+
+def openalex_record(work):
+    loc = (work.get("primary_location") or {}).get("source") or {}
+    return record(
+        title=work.get("display_name") or "",
+        authors=[a["author"]["display_name"] for a in work.get("authorships", [])[:5]
+                 if a.get("author")],
+        year=work.get("publication_year"),
+        venue=loc.get("display_name") or "",
+        doi=work.get("doi") or "",
+        openalex=(work.get("id") or "").rsplit("/", 1)[-1],
+        citations=work.get("cited_by_count") or 0,
+        is_preprint=work.get("type") == "preprint" or loc.get("type") == "repository",
+        abstract=from_inverted_index(work.get("abstract_inverted_index")),
+        oa_url=(work.get("open_access") or {}).get("oa_url") or "",
+        sources=["openalex"],
+    )
+
+
+RELATED_FILTERS = {"citing": "cites", "references": "cited_by", "similar": "related_to"}
+
+
+def openalex_id(rec):
+    """The OpenAlex work id of a db record: the stored one, else looked up by DOI or arXiv id."""
+    if rec.get("openalex"):
+        return rec["openalex"]
+    doi = rec.get("doi") or ("10.48550/arxiv." + re.sub(r"v\d+$", "", rec["arxiv_id"])
+                             if rec.get("arxiv_id") else "")
+    if not doi:
+        return ""
+    url = "https://api.openalex.org/works/doi:" + urllib.parse.quote(doi) + "?select=id"
+    if MAILTO:
+        url += "&mailto=" + urllib.parse.quote(MAILTO)
+    return (_get_json(url).get("id") or "").rsplit("/", 1)[-1]
+
+
+def fetch_related(work_id, direction, limit, year_from, query, sort):
+    """The works on one side of a work in the OpenAlex citation graph."""
+    filters = ["%s:%s" % (RELATED_FILTERS[direction], work_id)]
+    if year_from:
+        filters.append("publication_year:>%d" % (year_from - 1))
+    url = ("https://api.openalex.org/works?filter=" + urllib.parse.quote(",".join(filters), safe=":,>")
+           + "&per-page=%d" % limit)
+    if query:
+        url += "&search=" + urllib.parse.quote(query)
+    else:  # with a search term OpenAlex orders by relevance
+        url += "&sort=" + ("publication_date:desc" if sort == "recent" else "cited_by_count:desc")
+    if MAILTO:
+        url += "&mailto=" + urllib.parse.quote(MAILTO)
+    return [openalex_record(work) for work in _get_json(url).get("results", [])]
 
 
 def fetch_arxiv(query, limit, year_from):
@@ -321,8 +367,8 @@ def merge_into(target, other):
     if len(other["abstract"]) > len(target["abstract"]):
         target["abstract"] = other["abstract"]
     target["citations"] = max(target["citations"], other["citations"])
-    for field in ("title", "venue", "doi", "arxiv_id", "pmid", "oa_url"):
-        if not target[field] and other[field]:
+    for field in ("title", "venue", "doi", "arxiv_id", "pmid", "openalex", "oa_url"):
+        if not target.get(field) and other.get(field):  # a db written before 2.1 has no openalex
             target[field] = other[field]
     # A journal DOI replaces the DOI that DataCite assigns to an arXiv preprint.
     if _ARXIV_DOI.match(target["doi"]) and other["doi"] and not _ARXIV_DOI.match(other["doi"]):
@@ -374,6 +420,25 @@ def rank(records, min_citations=0):
     return kept
 
 
+def velocity(rec, this_year):
+    """Citations per year since publication; the publication year counts as one year."""
+    return rec["citations"] / max(this_year - (rec["year"] or this_year) + 1, 1)
+
+
+def number(papers):
+    for num, rec in enumerate(papers, 1):
+        rec["id"] = "P%d" % num
+        rec["grade"] = grade(rec)
+        rec["url"] = canonical_url(rec)
+    return papers
+
+
+def write_db(path, queries, papers):
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"queries": queries, "count": len(papers), "papers": papers}, fh,
+                  ensure_ascii=False, indent=2)
+
+
 # ---------------------------------------------------------------- commands
 
 def cmd_search(args):
@@ -417,19 +482,9 @@ def cmd_search(args):
         except json.JSONDecodeError as exc:
             _die("cannot read %s: %s" % (args.db, exc))
 
-    papers = rank(merge_all(collected, existing), args.min_citations)
-    for num, rec in enumerate(papers, 1):
-        rec["id"] = "P%d" % num
-        rec["grade"] = grade(rec)
-        rec["url"] = canonical_url(rec)
-
-    db = {
-        "queries": prior_queries + [{"query": q, "sources": sources} for q in args.query],
-        "count": len(papers),
-        "papers": papers,
-    }
-    with open(args.db, "w", encoding="utf-8") as fh:
-        json.dump(db, fh, ensure_ascii=False, indent=2)
+    papers = number(rank(merge_all(collected, existing), args.min_citations))
+    write_db(args.db, prior_queries + [{"query": q, "sources": sources} for q in args.query],
+             papers)
 
     print(format_table(papers))
     print("\n%d papers -> %s  (abstracts: %s of %d)"
@@ -451,6 +506,80 @@ def format_table(papers):
 def _clip(text, width):
     text = " ".join((text or "").split())
     return text if len(text) <= width else text[:width - 1] + "…"
+
+
+def cmd_list(args):
+    """Print the db in another order. No id changes and nothing is written."""
+    papers = _load_db(args.db)["papers"]
+    this_year = datetime.date.today().year
+    if args.year_from:
+        papers = [p for p in papers if (p["year"] or 0) >= args.year_from]
+    if args.sort == "velocity":
+        papers = sorted(papers, key=lambda r: (-velocity(r, this_year), -(r["year"] or 0), r["title"]))
+    elif args.sort == "recent":
+        papers = sorted(papers, key=lambda r: (-(r["year"] or 0), -r["citations"], r["title"]))
+    total = len(papers)
+    if args.top:
+        papers = papers[:args.top]
+    print(format_table(papers))
+    print("\n%d of %d papers, sorted by %s%s" % (len(papers), total, args.sort,
+                                                 ", from %d" % args.year_from if args.year_from else ""))
+
+
+def cmd_related(args):
+    """Follow the citation graph from papers in the db and fold the result into the db."""
+    db = _load_db(args.db)
+    existing = db["papers"]
+    by_id = {p["id"]: p for p in existing}
+    missing = [i for i in args.ids if i not in by_id]
+    if missing:
+        _die("not in %s: %s" % (args.db, ", ".join(missing)))
+
+    collected, failures = [], []
+    for pid in args.ids:
+        seed = by_id[pid]
+        try:
+            work_id = openalex_id(seed)
+            if not work_id:
+                failures.append("%s: no OpenAlex record (no DOI or arXiv id to look it up by)" % pid)
+                continue
+            seed["openalex"] = work_id
+            collected.extend(fetch_related(work_id, args.direction, args.limit, args.year_from,
+                                           args.query, args.sort))
+        except Exception as exc:
+            failures.append("%s: %s" % (pid, exc))
+    for line in failures:
+        print("warn: " + line, file=sys.stderr)
+    print("failed seeds: " + (", ".join(f.split(":", 1)[0] for f in failures) or "none"))
+    if len(failures) == len(args.ids):
+        return 2
+
+    # the same object stays in the merged list, so a seed and a known paper are found again by identity
+    seeds = [by_id[pid] for pid in args.ids]
+    known = set(map(id, existing))
+    for rec in existing:
+        rec.pop("id", None)
+        rec.pop("grade", None)
+        rec.pop("url", None)
+    merged = merge_all(collected, existing)
+    found = [r for r in merged if id(r) not in known]
+    found_keys = {k for r in collected for k in dedup_keys(r)}
+    already = [r for r in merged if id(r) in known and not any(r is s for s in seeds)
+               and found_keys.intersection(dedup_keys(r))]
+    papers = number(rank(merged))
+    entry = {"related": args.ids, "direction": args.direction}
+    if args.query:
+        entry["query"] = args.query
+    write_db(args.db, db.get("queries", []) + [entry], papers)
+
+    shown = sorted(found + already, key=lambda r: int(r["id"][1:]))
+    print(format_table(shown))
+    print("\n%d papers %s %s: %d new, %d already in the db -> %s (%d papers)"
+          % (len(shown), args.direction, ", ".join(args.ids), len(found), len(already), args.db,
+             len(papers)))
+    print("ids were reassigned; seeds: " + ", ".join(
+        "%s is now %s" % (pid, seed.get("id", "merged into another record"))
+        for pid, seed in zip(args.ids, seeds)))
 
 
 def cmd_show(args):
@@ -538,6 +667,27 @@ def main(argv=None):
     p_search.add_argument("--merge", action="store_true",
                           help="fold into an existing db (snowballing); ids are reassigned")
     p_search.set_defaults(func=cmd_search)
+
+    p_list = sub.add_parser("list", help="print the db in another order; ids stay as they are")
+    p_list.add_argument("--db", default="papers.json")
+    p_list.add_argument("--sort", choices=("citations", "velocity", "recent"), default="velocity",
+                        help="velocity = citations per year since publication (default)")
+    p_list.add_argument("--year-from", type=int, default=0)
+    p_list.add_argument("--top", type=int, default=0, help="print the first N rows only")
+    p_list.set_defaults(func=cmd_list)
+
+    p_rel = sub.add_parser("related", help="follow the OpenAlex citation graph from db papers")
+    p_rel.add_argument("ids", nargs="+", help="seed papers, by db id")
+    p_rel.add_argument("--db", default="papers.json")
+    p_rel.add_argument("--direction", choices=tuple(RELATED_FILTERS), default="citing",
+                       help="citing = papers that cite the seed (default), references = papers "
+                            "it cites, similar = OpenAlex related works")
+    p_rel.add_argument("--query", help="keep only the related papers that match this search")
+    p_rel.add_argument("--sort", choices=("cited", "recent"), default="cited",
+                       help="order of the related papers when no --query is given")
+    p_rel.add_argument("--limit", type=int, default=20, help="results per seed")
+    p_rel.add_argument("--year-from", type=int, default=0)
+    p_rel.set_defaults(func=cmd_related)
 
     p_show = sub.add_parser("show", help="print full records incl. abstracts")
     p_show.add_argument("ids", nargs="+")

@@ -1,8 +1,9 @@
 ---
 name: research-team-lead
 description: >-
-  Research team lead. Runs the research-team procedure for a STANDARD or DEEP request: writes the
-  brief, launches the collectors in parallel, runs the check script, writes the outline and the
+  Research team lead. Runs the research-team procedure for a STANDARD or DEEP request: scouts
+  the field, writes the brief with the territory around the request, launches the collectors in
+  parallel, runs the check script, follows up the gaps and the leads, writes the outline and the
   English report, launches the screeners and the verifiers, patches what they flag, runs the report check and
   translates the report into the request's language. Launch it from a main session on any model
   other than Claude Fable, with the request, the tier, any local materials and the skill

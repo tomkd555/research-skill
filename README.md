@@ -12,8 +12,7 @@ OpenAlex, arXiv, PubMed and Semantic Scholar.
 ## Requirements
 
 The plugin needs Python 3 and Claude Code's WebSearch and WebFetch tools. Its scripts use only
-Python's standard library, apart from `pypdf`, which reads PDF sources. Optionally, set
-`OPENALEX_MAILTO` to your email address. The plugin then sends it to OpenAlex with each request.
+Python's standard library, apart from `pypdf`, which reads PDF sources.
 
 ## Install
 
